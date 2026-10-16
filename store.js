@@ -13,12 +13,17 @@ export const defaults = () => ({
     equipment: EQUIPMENT_PRESETS.gym,
     restDefault: 90,
     onboarded: false,
+    weekSet: false,
+    week: { days: [0, 1, 2, 3, 4], min: 3, max: 4 }, // metas semanales: días disponibles, mínimo y máximo
+    remind: { app: false, cal: false, time: '18:00' },
     code: '',
   },
   history: [],
   active: null,
   pending: [], // ids de sesiones por enviar
   deleted: [], // ids borrados por enviar
+  skips: [], // días en los que no se pudo entrenar: { date, reason, ts }
+  deletedDays: [], // fechas de días perdidos quitados, por enviar
   lastSync: null,
 });
 
@@ -89,6 +94,16 @@ export async function sync(state) {
     state.pending = state.pending.filter((x) => x !== id);
     sent++;
   }
+  // Días perdidos: se borran los quitados, se envían todos (idempotente) y se mezclan los del Sheets.
+  for (const d of [...(state.deletedDays ?? [])]) {
+    await api(state, 'dia_borrar', { fecha: d });
+    state.deletedDays = state.deletedDays.filter((x) => x !== d);
+  }
+  await api(state, 'dias_guardar', { dias: (state.skips ?? []).map((x) => ({ fecha: x.date, tipo: 'no_pude', motivo: x.reason })) });
+  const haveDay = new Set((state.skips ?? []).map((x) => x.date));
+  for (const r of (await api(state, 'dias_listar')).dias) {
+    if (!haveDay.has(r.fecha)) (state.skips = state.skips ?? []).push({ date: r.fecha, reason: r.motivo || 'other', ts: 0 });
+  }
   const remote = (await api(state, 'historial_listar', { limite: 1000 })).sesiones;
   let added = 0;
   const have = new Set(state.history.map((h) => h.id));
@@ -104,7 +119,7 @@ export async function sync(state) {
   }
   state.history.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   await api(state, 'perfil_guardar', {
-    perfil: { modo: state.settings.mode, sexo: state.settings.sex, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restDefault, equipo: state.settings.equipment },
+    perfil: { modo: state.settings.mode, sexo: state.settings.sex, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restDefault, equipo: state.settings.equipment, semana: state.settings.week, avisos: { app: state.settings.remind?.app, cal: state.settings.remind?.cal, hora: state.settings.remind?.time } },
   });
   state.lastSync = new Date().toISOString();
   return { sent, added };

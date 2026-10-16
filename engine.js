@@ -207,7 +207,7 @@ export function weeklyLoad(history, now = Date.now()) {
 }
 
 // ---------- Planificador ----------
-export function makePlan({ mode, minutes, available, history = [], split, now = Date.now() }) {
+export function makePlan({ mode, minutes, available, history = [], split, now = Date.now(), soft = false }) {
   const avail = available instanceof Set ? available : new Set(available);
   const chosen = split ?? nextSplit(mode, history);
   const warmup = warmupMinutes(minutes);
@@ -289,8 +289,18 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
   }
 
   blocks.push({ type: 'cooldown', minutes: cooldown, seconds: cooldown * 60 });
+  if (soft) {
+    // Vuelta suave: una serie menos por ejercicio (mínimo 2) y un poco más de reserva.
+    for (const b of blocks) {
+      if (b.type === 'exercise' && b.kind === 'strength') {
+        b.sets = Math.max(2, b.sets - 1);
+        b.rir = (b.rir ?? 1) + 1;
+        b.seconds = exerciseSeconds(b.sets, b.restS, 'strength');
+      }
+    }
+  }
   const plannedSeconds = blocks.reduce((a, b) => a + (b.seconds || 0), 0);
-  return { mode, split: chosen, minutes, plannedSeconds, blocks, why: [...why], warnings };
+  return { mode, split: chosen, minutes, plannedSeconds, blocks, why: [...why], warnings, soft };
 }
 
 function toBlocks(trial) {
@@ -414,12 +424,16 @@ export function suggestedWeightKg(cur, sub, lastKg) {
 
 // ---------- Cuerpo por zonas ----------
 // Cantidad "planeada" de cada zona en el plan: suma de peso × series.
+// Aporte real de una zona: crece con el cuadrado del peso, así las zonas principales (0,9–1)
+// dominan y las secundarias (0,3–0,5) casi no se encienden. Evita que "se pinte todo el cuerpo".
+export const effect = (w) => w * w;
+
 export function plannedUnits(plan) {
   const units = {};
   for (const b of plan.blocks) {
     if (b.type !== 'exercise') continue;
     const ex = BY_CODE.get(b.code);
-    for (const [r, w] of Object.entries(ex.weights)) units[r] = (units[r] ?? 0) + w * b.sets;
+    for (const [r, w] of Object.entries(ex.weights)) units[r] = (units[r] ?? 0) + effect(w) * b.sets;
   }
   return units;
 }
@@ -432,7 +446,7 @@ export function addSetToFill(fill, plan, code) {
   const ex = BY_CODE.get(code);
   const next = { ...fill };
   for (const [r, w] of Object.entries(ex.weights)) {
-    next[r] = Math.min(1, (next[r] ?? 0) + w / ZONE_TARGET);
+    next[r] = Math.min(1, (next[r] ?? 0) + effect(w) / ZONE_TARGET);
   }
   return next;
 }
@@ -473,4 +487,218 @@ export function csvFromHistory(history) {
     rows.push([s.fecha, s.modo, s.titulo, x.ejercicio, x.serie, x.peso_kg, x.reps, x.rir ?? '', x.duracion_s ?? '', x.distancia_m ?? '', x.es_pr ? 1 : 0, x.nota ?? ''].map(esc).join(','));
   }
   return rows.join('\n');
+}
+
+// =====================================================================================
+// Agenda semanal adaptable: la semana es un conjunto de metas (días disponibles, mínimo y máximo),
+// no un calendario fijo. Cada día se sugiere la sesión según qué zonas ya descansaron, cuáles van
+// cortas esta semana y la rotación. Faltar un día no castiga: la sesión simplemente pasa al siguiente.
+// =====================================================================================
+const p2 = (n) => String(n).padStart(2, '0');
+export const localDate = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; };
+export const dateMs = (str, h = 12) => { const [y, m, d] = str.split('-').map(Number); return new Date(y, m - 1, d, h, 0, 0).getTime(); };
+export const dayIdx = (ms) => (new Date(ms).getDay() + 6) % 7; // 0 = lunes … 6 = domingo
+export const addDays = (str, n) => localDate(dateMs(str) + n * 864e5);
+export const mondayOf = (str) => addDays(str, -dayIdx(dateMs(str)));
+const sessionMs = (s) => new Date(s.fecha).getTime();
+
+export const DEFAULT_WEEK = { days: [0, 1, 2, 3, 4], min: 3, max: 4 };
+export const REST_HOURS = 48;
+const WEEK_TARGET = { muscle: 6, hybrid: 4 };
+
+const regionsCache = new Map();
+/** Zonas principales (peso >= 0,7) de un tipo de sesión con el equipo disponible. */
+export function splitRegions(split, mode, available) {
+  const avail = available instanceof Set ? available : new Set(available);
+  const key = `${mode}|${split}|${[...avail].sort().join(',')}`;
+  if (regionsCache.has(key)) return regionsCache.get(key);
+  const plan = makePlan({ mode, minutes: 60, available: avail, history: [], split, now: 0 });
+  const out = new Set();
+  for (const b of plan.blocks) {
+    if (b.type !== 'exercise') continue;
+    for (const [r, w] of Object.entries(BY_CODE.get(b.code).weights)) if (w >= 0.7) out.add(r);
+  }
+  regionsCache.set(key, out);
+  return out;
+}
+
+/** Última vez que se trabajó cada zona (peso >= 0,5). */
+export function zoneLast(history) {
+  const last = new Map();
+  for (const s of history) {
+    const ms = sessionMs(s);
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex) continue;
+      for (const [r, w] of Object.entries(ex.weights)) if (w >= 0.5 && (last.get(r) ?? -Infinity) < ms) last.set(r, ms);
+    }
+  }
+  return last;
+}
+
+/** Series efectivas por zona en los últimos 7 días. */
+export function weekSets(history, now) {
+  const out = {};
+  for (const s of history) {
+    if ((now - sessionMs(s)) / 36e5 > 24 * 7) continue;
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex || ex.kind === 'cardio') continue;
+      for (const [r, w] of Object.entries(ex.weights)) out[r] = (out[r] ?? 0) + effect(w);
+    }
+  }
+  return out;
+}
+
+/** Qué tan descansada está la gente para una sesión: 1 = todo listo; <1 = zonas aún cansadas. */
+export function readiness(split, mode, history, now, available) {
+  if (split === 'cardio_easy') return { score: 1, tired: [] };
+  if (split === 'cardio_interval') {
+    const last = [...history].filter((s) => HARD.has(s.split)).sort((a, b) => sessionMs(b) - sessionMs(a))[0];
+    const h = last ? (now - sessionMs(last)) / 36e5 : Infinity;
+    return h < 24 ? { score: 0.4, tired: [{ region: 'cardio_system', hours: Math.round(h) }] } : { score: 1, tired: [] };
+  }
+  const regs = [...splitRegions(split, mode, available)].filter((r) => r !== 'cardio_system');
+  if (!regs.length) return { score: 1, tired: [] };
+  const last = zoneLast(history);
+  const tired = [];
+  let rested = 0;
+  for (const r of regs) {
+    const h = (now - (last.get(r) ?? -Infinity)) / 36e5;
+    if (h >= REST_HOURS) rested++; else tired.push({ region: r, hours: Math.max(0, Math.round(h)) });
+  }
+  tired.sort((a, b) => a.hours - b.hours);
+  return { score: rested / regs.length, tired };
+}
+
+export function rotationFor(mode) { return mode === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION; }
+
+/** Ordena los tipos de sesión de mejor a peor opción para entrenar ahora. */
+export function rankSplits({ mode, history, now = Date.now(), available }) {
+  const order = rotationFor(mode);
+  const next = nextSplit(mode, history);
+  const base = order.indexOf(next);
+  const sets = weekSets(history, now);
+  const target = WEEK_TARGET[mode] ?? 6;
+  const lastAny = [...history].sort((a, b) => sessionMs(b) - sessionMs(a))[0];
+  const rows = order.map((split, i) => {
+    const r = readiness(split, mode, history, now, available);
+    const regs = [...splitRegions(split, mode, available)].filter((x) => x !== 'cardio_system');
+    const need = regs.length ? regs.reduce((a, x) => a + Math.max(0, 1 - (sets[x] ?? 0) / target), 0) / regs.length : 0.5;
+    const dist = (i - base + order.length) % order.length;
+    const seq = [1, 0.6, 0.35, 0.2][Math.min(dist, 3)];
+    let score = 0.5 * r.score + 0.3 * need + 0.2 * seq;
+    if (lastAny && HARD.has(lastAny.split) && HARD.has(split) && (now - sessionMs(lastAny)) / 36e5 < 24) score -= 0.25;
+    return { split, score, readiness: r.score, tired: r.tired, need, order: i };
+  });
+  rows.sort((a, b) => b.score - a.score || a.order - b.order);
+  return rows;
+}
+
+export function suggestToday(args) {
+  const rank = rankSplits(args);
+  return { ...rank[0], rank, restAdvised: rank[0].readiness < 0.5 };
+}
+
+export function daysSinceLast(history, now) {
+  const last = [...history].sort((a, b) => sessionMs(b) - sessionMs(a))[0];
+  return last ? Math.floor((now - sessionMs(last)) / 864e5) : Infinity;
+}
+export const needsSoftReturn = (history, now) => history.length > 0 && daysSinceLast(history, now) >= 6;
+
+function virtualSession(split, mode, available, atMs) {
+  const plan = makePlan({ mode, minutes: 45, available, history: [], split, now: atMs });
+  const series = [];
+  for (const b of plan.blocks) if (b.type === 'exercise') for (let i = 0; i < b.sets; i++) series.push({ ejercicio_code: b.code });
+  return { fecha: new Date(atMs).toISOString().slice(0, 16), modo: mode, split, series, virtual: true };
+}
+
+/**
+ * Proyecta el plan de los próximos `n` días a partir de `from` respetando días disponibles y el máximo
+ * por semana (lunes a domingo). Cada día se sugiere según el estado de descanso simulado.
+ * Devuelve un mapa fecha → { split, extra }. `done` indica cuántos días ya se entrenaron esa semana.
+ */
+export function planRange({ mode, history, skips = [], week, now, available, from, n }) {
+  const w = week ?? DEFAULT_WEEK;
+  const today = localDate(now);
+  const start = from ?? today;
+  const vhist = [...history];
+  const skipSet = new Set(skips.map((s) => s.date));
+  const doneDates = new Set(history.map((s) => String(s.fecha).slice(0, 10)));
+  const counts = new Map(); // lunes -> días con entrenamiento (reales o planeados)
+  const bump = (mon) => counts.set(mon, (counts.get(mon) ?? 0) + 1);
+  // días ya entrenados en las semanas implicadas
+  for (let i = -7; i < n + 7; i++) {
+    const d = addDays(start, i);
+    if (doneDates.has(d)) bump(mondayOf(d));
+  }
+  const out = {};
+  for (let i = 0; i < n; i++) {
+    const d = addDays(start, i);
+    if (d < today) continue;
+    if (doneDates.has(d)) continue;
+    if (d === today && skipSet.has(d)) continue;
+    const mon = mondayOf(d);
+    const used = counts.get(mon) ?? 0;
+    if (!w.days.includes(dayIdx(dateMs(d)))) continue;
+    if (used >= w.max) continue;
+    const at = d === today ? now : dateMs(d, 17);
+    const top = rankSplits({ mode, history: vhist, now: at, available })[0];
+    out[d] = { split: top.split, extra: used + 1 > w.min };
+    bump(mon);
+    vhist.push(virtualSession(top.split, mode, available, at));
+  }
+  return out;
+}
+
+/**
+ * La semana (lunes a domingo) para la barra y el calendario: lo hecho, lo perdido, lo sugerido.
+ * Estados: done · missed · today · planned · extra · free (sin plan) · off (día no disponible).
+ */
+export function buildWeek({ mode, history, skips = [], week, now = Date.now(), available }) {
+  const w = week ?? DEFAULT_WEEK;
+  const today = localDate(now);
+  const mon = mondayOf(today);
+  const plan = planRange({ mode, history, skips, week: w, now, available, from: today, n: 14 });
+  const byDate = new Map();
+  for (const s of history) {
+    const d = String(s.fecha).slice(0, 10);
+    byDate.set(d, [...(byDate.get(d) ?? []), s]);
+  }
+  const skipBy = new Map(skips.map((s) => [s.date, s]));
+  const days = [];
+  let doneDays = 0, plannedDays = 0;
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(mon, i);
+    const done = byDate.get(date) ?? [];
+    const sk = skipBy.get(date);
+    const avail = w.days.includes(i);
+    let state;
+    if (done.length) { state = 'done'; doneDays++; }
+    else if (sk) state = 'missed';
+    else if (plan[date]) { state = date === today ? 'today' : plan[date].extra ? 'extra' : 'planned'; plannedDays++; }
+    else if (date < today) state = 'free';
+    else state = avail ? 'free' : 'off';
+    days.push({ date, idx: i, state, split: plan[date]?.split ?? done[0]?.split ?? null, sessions: done, skip: sk ?? null, avail, isToday: date === today });
+  }
+  const total = doneDays + days.filter((d) => d.state === 'today' || d.state === 'planned').length;
+  const shortfall = Math.max(0, w.min - total);
+  const spare = days.filter((d) => d.date >= today && d.state !== 'done' && d.state !== 'missed' && !plan[d.date] && !d.avail).map((d) => d.idx);
+  return { days, doneDays, plannedDays, min: w.min, max: w.max, shortfall, spare, today };
+}
+
+/** Eventos para el calendario de Google: solo las sesiones sugeridas (no las extra) de los próximos 7 días. */
+export function calendarEvents({ mode, history, skips, week, now, available, time = '18:00', minutes = 45, title }) {
+  const plan = planRange({ mode, history, skips, week, now, available, from: localDate(now), n: 7 });
+  return Object.entries(plan).filter(([, v]) => !v.extra).map(([date, v]) => ({
+    clave: `formd-${date}`, fecha: date, hora: time, minutos: minutes, titulo: title ? title(v.split) : v.split, split: v.split,
+  }));
+}
+
+/** Mensaje de a qué día pasa la sesión cuando hoy no se pudo entrenar. */
+export function nextPlannedDay(args) {
+  const today = localDate(args.now);
+  const plan = planRange({ ...args, from: addDays(today, 1), n: 7 });
+  const d = Object.keys(plan).sort()[0];
+  return d ? { date: d, split: plan[d].split } : null;
 }

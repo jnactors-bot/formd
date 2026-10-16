@@ -6,10 +6,11 @@ import {
   BY_CODE, EQUIPMENT_PRESETS, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
+  DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
 } from './engine.js';
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
-import { canSync, exportBackup, load, save, scriptUrl, sync } from './store.js';
+import { api, canSync, exportBackup, load, save, scriptUrl, sync } from './store.js';
 
 const LB = 2.2046226218;
 let S = load();
@@ -19,7 +20,7 @@ const TAB_ORDER = ['home', 'history', 'profile'];
 const ui = {
   screen: null, tab: 'home', minutes: 45, plan: null, view: 'front', histTab: 'date', histEx: null,
   modal: null, toast: '', hintDismissed: -1, summary: null, syncing: false, dir: 'fwd',
-  onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0,
+  onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0, splitOverride: null, calMonth: null, calSel: null,
 };
 
 const $app = document.getElementById('app');
@@ -47,6 +48,12 @@ const startKg = (ex) => {
   const base = ex.bodyweight ? 0 : ex.equipment === 'barbell' ? 20 : ex.equipment === 'dumbbell' || ex.equipment === 'kettlebell' ? 8 : 20;
   return S.settings.sex === 'female' ? Math.round(base * 0.6 / 2.5) * 2.5 : base;
 };
+const todayStr = () => localDate(Date.now());
+const agendaArgs = () => ({ mode: S.settings.mode, history: S.history, skips: S.skips ?? [], week: S.settings.week ?? DEFAULT_WEEK, now: Date.now(), available: available() });
+const DAY_LETTERS = { es: ['L', 'M', 'X', 'J', 'V', 'S', 'D'], en: ['M', 'T', 'W', 'T', 'F', 'S', 'S'] };
+const dayLetter = (i) => DAY_LETTERS[lang()][i];
+const fmtDate = (str, opts) => new Date(dateMs(str)).toLocaleDateString(lang() === 'en' ? 'en' : 'es', opts);
+const splitName = (split) => t('splitShort.' + split);
 const primaryRegionsOf = (ex) => Object.entries(ex.weights).filter(([, w]) => w >= 0.7).map(([r]) => r);
 
 const ICON = {
@@ -55,6 +62,8 @@ const ICON = {
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   history: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   profile: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   swap: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
@@ -89,13 +98,14 @@ async function keepAwake(on) {
 
 // ---------- Rutas ----------
 function route() {
-  if (!S.settings.onboarded) return ui.onbStep === 3 ? 'equip' : ui.onbStep === 2 ? 'sex' : 'welcome';
+  if (!S.settings.onboarded) return ui.onbStep === 4 ? 'week' : ui.onbStep === 3 ? 'equip' : ui.onbStep === 2 ? 'sex' : 'welcome';
   if (ui.screen === 'summary' && ui.summary) return 'summary';
   if (ui.screen === 'session' && S.active) return 'session';
   if (ui.screen === 'plan' && ui.plan) return 'plan';
+  if (ui.screen === 'calendar') return 'calendar';
   return 'tabs';
 }
-const DEEP = new Set(['equip', 'sex', 'plan', 'session']);
+const DEEP = new Set(['equip', 'sex', 'week', 'plan', 'session', 'calendar']);
 
 function go(screen, tab, dir = 'fwd') {
   ui.screen = screen; ui.dir = dir;
@@ -108,6 +118,8 @@ function go(screen, tab, dir = 'fwd') {
 function handleBack() {
   if (ui.modal) return closeModal();
   const r = route();
+  if (r === 'week') { ui.onbStep = 3; ui.dir = 'back'; render(); return; }
+  if (r === 'calendar') { go('tabs', 'home', 'back'); return; }
   if (r === 'equip') { ui.onbStep = 2; ui.dir = 'back'; render(); return; }
   if (r === 'sex') { ui.onbStep = 1; ui.dir = 'back'; render(); return; }
   if (r === 'plan') { ui.plan = null; go('tabs', 'home', 'back'); return; }
@@ -169,11 +181,30 @@ const unitToggle = () => `<div class="row gap">${['kg', 'lb'].map((u) => `<butto
 
 function viewEquip() {
   return `<main class="pad col stagger">
-    <div class="row between">${backBtn()}<span class="mut sm">3 / 3</span></div>
+    <div class="row between">${backBtn()}<span class="mut sm">3 / 4</span></div>
     <h1 class="hero">${t('equip.title2')}</h1>
     <div class="col gap">${presetButtons()}</div>
     <div class="card row between"><span>${t('equip.units')}</span>${unitToggle()}</div>
     <details class="more"><summary>${t('equip.customize')}</summary><div class="col mt">${equipChecks()}</div></details>
+    <div class="grow"></div>
+    <button class="cta" data-a="confirmEquip">${t('common.continue')}</button>
+  </main>`;
+}
+
+function weekFields() {
+  const w = S.settings.week ?? DEFAULT_WEEK;
+  const stepRow = (f, label) => `<div class="stepline"><span>${label}</span><div class="row gap"><button class="step-btn sm" data-a="weekStep" data-f="${f}" data-d="-1" aria-label="−">−</button><b class="stepnum">${w[f]}</b><button class="step-btn sm" data-a="weekStep" data-f="${f}" data-d="1" aria-label="+">+</button></div></div>`;
+  return `<div class="label">${t('week.days')}</div>
+    <div class="days7" role="group">${[0, 1, 2, 3, 4, 5, 6].map((i) => `<button class="daychip ${w.days.includes(i) ? 'on' : ''}" data-a="toggleDay" data-v="${i}" aria-pressed="${w.days.includes(i)}">${dayLetter(i)}</button>`).join('')}</div>
+    <div class="col gap">${stepRow('min', t('week.min'))}${stepRow('max', t('week.max'))}</div>`;
+}
+
+function viewWeek() {
+  return `<main class="pad col stagger">
+    <div class="row between">${backBtn()}<span class="mut sm">4 / 4</span></div>
+    <h1 class="hero">${t('week.title')}</h1>
+    <div class="col">${weekFields()}</div>
+    <p class="mut xs">${t('week.note')}</p>
     <div class="grow"></div>
     <button class="cta" data-a="finishOnboarding">${t('equip.start')}</button>
   </main>`;
@@ -190,25 +221,83 @@ function syncBadge() {
   return S.pending.length || S.deleted.length ? `<span class="dot-warn" title="${t('history.offline')}"></span>` : `<span class="dot-ok" title="${t('sync.ok')}"></span>`;
 }
 
+function weekBar(wk) {
+  const mark = (d) => (d.state === 'done' ? '✓' : d.state === 'missed' ? '✕' : '');
+  return `<button class="weekbar" data-a="openCalendar" aria-label="${t('cal.title')}">${wk.days.map((d) =>
+    `<span class="wd ${d.state} ${d.isToday ? 'td' : ''}"><i>${dayLetter(d.idx)}</i><b>${mark(d)}</b></span>`).join('')}</button>`;
+}
+
 function viewHome() {
   const mode = S.settings.mode;
-  const split = nextSplit(mode, S.history);
-  const warnings = mode === 'hybrid' ? hybridWarnings(S.history, split) : [];
-  const load = weeklyLoad(S.history);
+  const args = agendaArgs();
+  const sug = suggestToday(args);
+  const split = ui.splitOverride ?? sug.split;
+  const wk = buildWeek(args);
+  const chosen = sug.rank.find((r) => r.split === split) ?? sug;
+  const todaySkip = (S.skips ?? []).find((x) => x.date === todayStr());
+  const next = todaySkip ? nextPlannedDay(args) : null;
   const resume = S.active ? `<button class="card accent-b resume" data-a="resume"><b>${t('home.resumeBtn')}</b><span class="mut xs">${esc(splitTitleEs(S.active.split))} · ${mmss((Date.now() - S.active.startedAt) / 1000)}</span></button>` : '';
-  const week = mode === 'hybrid' && load.sessions ? `<div class="mut sm">${load.sessions} ${t('home.weekSessions')} · ${load.cardioMin} ${t('common.min')} cardio</div>` : '';
+  let note = '';
+  if (todaySkip) note = `<div class="mut sm">${t('skip.today')}${next ? ' · ' + t('skip.movedTo', { split: splitName(next.split), day: fmtDate(next.date, { weekday: 'long' }) }) : ''}</div>`;
+  else if (sug.restAdvised && !ui.splitOverride) note = `<div class="warn">${t('home.restAdvised')}</div>`;
+  else if (chosen.tired?.length) note = `<div class="warn">${t('home.tired', { z: regionShort(chosen.tired[0].region), h: chosen.tired[0].hours })}</div>`;
+  else if (mode === 'hybrid') { const w = hybridWarnings(S.history, split)[0]; if (w) note = `<div class="warn">${t('warn.' + w.key)}</div>`; }
+  const soft = needsSoftReturn(S.history, Date.now()) ? `<span class="pill">${t('home.softReturn')}</span>` : '';
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
     ${resume}
+    <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
     <div class="grow-sm"></div>
-    <div><div class="kicker">${t('mode.' + mode).toUpperCase()}</div>
-      <h1 class="hero">${t('splitShort.' + split)}</h1>${week}</div>
-    ${warnings.slice(0, 1).map((w) => `<div class="warn">${t('warn.' + w.key)}</div>`).join('')}
+    <div><div class="row between"><div class="kicker">${t('mode.' + mode).toUpperCase()}</div><button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>
+      <h1 class="hero">${splitName(split)}</h1>${note}${soft}</div>
     <div class="row gap times" role="group" aria-label="${t('home.howMuchTime')}">${TIMES.map((m) => `<button class="chip ${ui.minutes === m ? 'on' : ''}" data-a="minutes" data-v="${m}" aria-pressed="${ui.minutes === m}">${m}</button>`).join('')}</div>
-    <div class="mut xs center">${t('common.minutes')}</div>
     <div class="grow"></div>
     <button class="cta" data-a="makePlan">${t('home.generate', { min: ui.minutes })}</button>
+    <button class="link skipbtn" data-a="${todaySkip ? 'unskipToday' : 'skipToday'}">${todaySkip ? t('skip.undo') : t('skip.btn')}</button>
   </main>${nav()}`;
+}
+
+function viewCalendar() {
+  const args = agendaArgs();
+  const today = todayStr();
+  const month = ui.calMonth ?? today.slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const first = `${month}-01`;
+  const offset = dayIdx(dateMs(first));
+  const dim = new Date(y, m, 0).getDate();
+  const plan = planRange({ ...args, from: today, n: 35 });
+  const doneBy = new Map();
+  for (const x of S.history) { const d = String(x.fecha).slice(0, 10); doneBy.set(d, [...(doneBy.get(d) ?? []), x]); }
+  const skipBy = new Map((S.skips ?? []).map((x) => [x.date, x]));
+  const stateOf = (d) => (doneBy.has(d) ? 'done' : skipBy.has(d) ? 'missed' : plan[d] ? (plan[d].extra ? 'extra' : 'planned') : '');
+  const sel = ui.calSel ?? today;
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push('<span class="cell void"></span>');
+  for (let d = 1; d <= dim; d++) {
+    const date = `${month}-${pad(d)}`;
+    const st = stateOf(date);
+    cells.push(`<button class="cell ${st} ${date === today ? 'td' : ''} ${date === sel ? 'sel' : ''}" data-a="calSel" data-v="${date}" aria-label="${fmtDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}"><span>${d}</span><i></i></button>`);
+  }
+  const mt = fmtDate(first, { month: 'long', year: 'numeric' });
+  const monthTitle = mt.charAt(0).toUpperCase() + mt.slice(1);
+  // detalle del día elegido
+  const done = doneBy.get(sel) ?? [];
+  const sk = skipBy.get(sel);
+  let detail = `<div class="mut">${t('cal.free')}</div>`;
+  if (done.length) detail = done.map((x) => `<div class="row between"><b>${esc(splitName(x.split) || x.titulo)}</b><span class="mut sm">${Math.round((x.segundos_real || 0) / 60)} ${t('common.min')}</span></div>`).join('');
+  else if (sk) detail = `<div class="row between"><b>${t('cal.missed')}</b><span class="mut sm">${t('skip.' + sk.reason)}</span></div>`;
+  else if (plan[sel]) detail = `<div class="row between"><b>${splitName(plan[sel].split)}</b><span class="mut sm">${plan[sel].extra ? t('week.extra') : t('cal.planned')}</span></div>`;
+  const canSkip = sel <= today && !done.length && !sk;
+  const actions = `<div class="row gap">${canSkip ? `<button class="seg grow" data-a="skipDate" data-v="${sel}">${t('skip.btn')}</button>` : ''}${sk ? `<button class="seg grow" data-a="unskipDate" data-v="${sel}">${t('skip.undo')}</button>` : ''}${sel === today && !done.length ? `<button class="seg grow on" data-a="trainToday">${t('cal.train')}</button>` : ''}</div>`;
+  const wk = buildWeek(args);
+  return `<main class="pad col stagger">
+    <div class="row between">${backBtn()}<b class="caltitle">${t('cal.title')}</b><span class="spacer44"></span></div>
+    <div class="row between monthnav"><button class="icon-btn" data-a="calPrev" aria-label="‹">${ICON.back}</button><b class="monthname">${esc(monthTitle)}</b><button class="icon-btn" data-a="calNext" aria-label="›">${ICON.chev}</button></div>
+    <div class="calwrap"><div class="calhead">${[0, 1, 2, 3, 4, 5, 6].map((i) => `<span>${dayLetter(i)}</span>`).join('')}</div><div class="calgrid">${cells.join('')}</div></div>
+    <div class="card daycard"><div class="label">${esc(fmtDate(sel, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>${detail}</div>
+    ${actions}
+    <div class="row between calfoot"><span class="mut sm">${t('week.summary', { done: wk.doneDays, min: wk.min })}</span><button class="link" data-a="openWeekCfg">${t('week.adjust')}</button></div>
+  </main>`;
 }
 
 function blockRow(b) {
@@ -227,7 +316,8 @@ function viewPlan() {
     <div class="row between">${backBtn()}<button class="link" data-a="why">${t('plan.whyBtn')}</button></div>
     <div><div class="kicker">${t('mode.' + p.mode).toUpperCase()}</div><h1 class="hero">${t('splitShort.' + p.split)}</h1>
       <div class="mut sm">${p.minutes} ${t('common.min')} · ${t('plan.exercises', { n })}</div></div>
-    ${(p.warnings ?? []).slice(0, 1).map((w) => `<div class="warn">${t('warn.' + w.key)}</div>`).join('')}
+    ${(p.tired ?? []).length ? `<div class="warn">${t('home.tired', { z: regionShort(p.tired[0].region), h: p.tired[0].hours })}<button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>` : (p.warnings ?? []).slice(0, 1).map((w) => `<div class="warn">${t('warn.' + w.key)}</div>`).join('')}
+    ${p.soft ? `<span class="pill">${t('home.softReturn')}</span>` : ''}
     <div class="col list-plan">${p.blocks.map(blockRow).join('')}</div>
     <button class="cta" data-a="startSession">${t('plan.start')}</button>
   </main>`;
@@ -246,7 +336,7 @@ function bodyCard(a, code) {
   const shown = ui.prevFill ?? a.fill;
   const view = ui.view;
   return `<div class="body-card row gap">
-    <button class="body-wrap" data-a="flipView" aria-label="${view === 'front' ? t('session.back') : t('session.front')}">${bodySVG(view, shown, bodyOpts())}</button>
+    <button class="body-wrap" data-a="flipView" aria-label="${view === 'front' ? t('session.back') : t('session.front')}">${bodySVG(view, shown, bodyOpts({ now: new Set(primary) }))}</button>
     <div class="grow zones">${primary.map((r) => {
       const pct = Math.round((shown[r] ?? 0) * 100);
       return `<div class="zone"><span>${esc(regionShort(r))}</span><div class="track"><u data-r="${r}" style="width:${pct}%"></u></div><b data-rp="${r}">${pct}%</b></div>`;
@@ -391,10 +481,10 @@ function sessionCard(s) {
     const body = ex && ex.kind !== 'strength' ? `${mmss(x.duracion_s || 0)}${x.distancia_m ? ' · ' + (x.distancia_m / 1000).toFixed(1) + ' km' : ''}` : `${fmtW(x.peso_kg || 0)} × ${x.reps}`;
     return `<li><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''}</span></li>`;
   }).join('');
-  return `<details class="card sess"><summary><div class="row between"><b>${esc(s.titulo)}</b><span class="mut sm">${esc(String(s.fecha).slice(5, 10))}</span></div>
-    <div class="mut xs">${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆' + s.prs : ''}</div></summary>
-    <ul class="list">${det}</ul>
-    <button class="link bad" data-a="delSession" data-v="${esc(s.id)}">${t('history.delete')}</button></details>`;
+  return `<details class="card sess"><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
+    <div class="mut xs">${esc(String(s.fecha).slice(5, 10))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆' + s.prs : ''}</div></div>
+    <button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></summary>
+    <ul class="list">${det}</ul></details>`;
 }
 
 function viewHistory() {
@@ -426,23 +516,27 @@ function viewHistory() {
   return `<main class="pad col stagger"><div class="row between"><h1>${t('history.title')}</h1>
     ${canSync(S) ? `<button class="icon-btn" data-a="doSync" aria-label="${t('history.sync')}">${ui.syncing ? '<span class="spin">⟳</span>' : '⟳'}</button>` : ''}</div>
     <div class="row gap scroll-x">${tabs}</div>${body}
-    ${hist.length ? `<button class="link" data-a="exportCsv">${t('history.export')}</button>` : ''}</main>${nav()}`;
+    ${hist.length ? `<div class="row gap histfoot"><button class="link" data-a="exportCsv">${t('history.export')}</button><button class="link bad" data-a="clearHistory">${t('history.clear')}</button></div>` : ''}</main>${nav()}`;
 }
 
 // ---------- Perfil ----------
+const remindCfg = () => ({ app: false, cal: false, time: '18:00', ...(S.settings.remind ?? {}) });
+
 function viewProfile() {
   const connected = canSync(S);
+  const rowSheet = (a, label, extra = '') => `<button class="rowitem" data-a="${a}"><span>${label}</span><span class="row gap">${extra}<span class="chev">${ICON.chev}</span></span></button>`;
+  const r = remindCfg();
   return `<main class="pad col stagger compact"><h1>${t('profile.title')}</h1>
-    <div class="card col"><span class="mut xs">${t('profile.mode')}</span>
-      <div class="row gap">${['muscle', 'hybrid'].map((m) => `<button class="seg grow ${S.settings.mode === m ? 'on' : ''}" data-a="changeMode" data-v="${m}">${t('mode.' + m)}</button>`).join('')}</div></div>
-    <div class="card row between"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
-    <div class="card row between"><span>${t('profile.unit')}</span>${unitToggle()}</div>
-    <div class="card row between"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
-    <details class="card more"><summary>${t('profile.equip')}</summary><div class="row gap mt wrap">${presetButtons()}</div><div class="col mt">${equipChecks()}</div></details>
-    <details class="card more"><summary>Google Sheets <span class="${connected ? 'dot-ok' : 'dot-off'}"></span></summary>
-      ${scriptUrl() ? `<label class="mt"><span class="mut xs">${t('profile.code')}</span><input id="f-code" type="password" autocomplete="off" value="${esc(S.settings.code)}"></label>
-        <button class="seg mt" data-a="connect">${t('profile.test')}</button>` : `<div class="warn mt">${t('profile.noUrl')}</div>`}
-      ${S.lastSync ? `<div class="mut xs mt">${t('profile.lastSync', { d: S.lastSync.slice(0, 16).replace('T', ' ') })}</div>` : ''}</details>
+    <div class="col list">
+      <div class="rowitem"><span>${t('profile.mode')}</span><div class="row gap">${['muscle', 'hybrid'].map((m) => `<button class="seg ${S.settings.mode === m ? 'on' : ''}" data-a="changeMode" data-v="${m}">${t('mode.' + m)}</button>`).join('')}</div></div>
+      <div class="rowitem"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
+      <div class="rowitem"><span>${t('profile.unit')}</span>${unitToggle()}</div>
+      <div class="rowitem"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
+      ${rowSheet('openWeekCfg', t('profile.week'), `<span class="mut sm">${(S.settings.week ?? DEFAULT_WEEK).min}–${(S.settings.week ?? DEFAULT_WEEK).max}</span>`)}
+      ${rowSheet('openRemind', t('profile.remind'), `<span class="${r.app || r.cal ? 'dot-ok' : 'dot-off'}"></span>`)}
+      ${rowSheet('openEquipSheet', t('profile.equip'))}
+      ${rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
+    </div>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
     <p class="mut xs center credit">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</p>
   </main>${nav()}`;
@@ -475,6 +569,28 @@ function modalHTML() {
       <div class="row gap"><button class="seg grow" data-a="closeModal">${t('session.keep')}</button><button class="seg grow bad" data-a="leaveSession">${t('session.leave')}</button></div>`;
   } else if (m.type === 'ask') {
     inner = `<p>${esc(m.text)}</p><div class="row gap"><button class="seg grow" data-a="closeModal">${t('ask.no')}</button><button class="seg grow on" data-a="askYes">${t('ask.yes')}</button></div>`;
+  } else if (m.type === 'skip') {
+    inner = `<h2>${t('skip.title')}</h2><div class="reasons">${['work', 'tired', 'sick', 'travel', 'other'].map((k) => `<button class="seg" data-a="skipReason" data-v="${k}">${t('skip.' + k)}</button>`).join('')}</div>`;
+  } else if (m.type === 'splits') {
+    const rank = suggestToday(agendaArgs()).rank;
+    inner = `<h2>${t('splits.title')}</h2>${rank.map((r, i) => `<button class="opt ${i === 0 ? 'best' : ''}" data-a="pickSplit" data-v="${r.split}"><div class="row between"><b>${splitName(r.split)}</b><span class="pill ${r.readiness >= 1 ? 'lv-A' : 'lv-B'}">${r.readiness >= 1 ? t('splits.ready') : t('splits.tired')}</span></div>${r.tired.length ? `<div class="mut xs">${esc(regionShort(r.tired[0].region))} · ${r.tired[0].hours} h</div>` : ''}</button>`).join('')}`;
+  } else if (m.type === 'weekcfg') {
+    inner = `<h2>${t('week.title')}</h2><div class="col">${weekFields()}</div><p class="mut xs">${t('week.note')}</p>`;
+  } else if (m.type === 'equipsheet') {
+    inner = `<h2>${t('profile.equip')}</h2><div class="row gap wrap">${presetButtons()}</div><div class="col mt">${equipChecks()}</div>`;
+  } else if (m.type === 'sheetssheet') {
+    inner = `<h2>Google Sheets · ${canSync(S) ? t('profile.connected') : t('profile.notConnected')}</h2><p class="mut xs">${t('profile.connectNote')}</p>
+      ${scriptUrl() ? `<label><span class="mut xs">${t('profile.code')}</span><input id="f-code" type="password" autocomplete="off" value="${esc(S.settings.code)}"></label><button class="seg on" data-a="connect">${t('profile.test')}</button>` : `<div class="warn">${t('profile.noUrl')}</div>`}
+      ${S.lastSync ? `<div class="mut xs">${t('profile.lastSync', { d: S.lastSync.slice(0, 16).replace('T', ' ') })}</div>` : ''}`;
+  } else if (m.type === 'remind') {
+    const r = remindCfg();
+    inner = `<h2>${t('remind.title')}</h2>
+      <label class="check"><span>${t('remind.app')}</span><input type="checkbox" data-a="toggleRemindApp" ${r.app ? 'checked' : ''}></label>
+      <p class="mut xs">${t('remind.appNote')}</p>
+      <label class="check"><span>${t('remind.cal')}</span><input type="checkbox" data-a="toggleRemindCal" ${r.cal ? 'checked' : ''} ${canSync(S) ? '' : 'disabled'}></label>
+      <p class="mut xs">${canSync(S) ? t('remind.calNote') : t('remind.needSheets')}</p>
+      <label><span class="mut xs">${t('remind.time')}</span><input id="f-time" type="time" value="${esc(r.time)}" data-a="setRemindTime"></label>
+      ${canSync(S) ? `<button class="seg" data-a="calNow">${t('remind.now')}</button>` : ''}`;
   } else if (m.type === 'sub') {
     const cur = BY_CODE.get(m.from);
     const last = lastPerformance(S.history, m.from);
@@ -486,7 +602,7 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = m.type === 'sub' || m.type === 'evidence' || m.type === 'why';
+  const showClose = ['sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip'].includes(m.type);
   return `<div class="overlay" data-a="closeModal"><div class="sheet" role="dialog" aria-modal="true"><i class="grab"></i>${inner}
     ${showClose ? `<button class="link" data-a="closeModal">${m.type === 'sub' ? t('sub.wait') : t('common.close')}</button>` : ''}</div></div>`;
 }
@@ -495,7 +611,7 @@ function modalHTML() {
 function render() {
   setLang(S.settings.lang);
   const r = route();
-  const views = { welcome: viewWelcome, sex: viewSex, equip: viewEquip, plan: viewPlan, session: viewSession, summary: viewSummary };
+  const views = { welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
   if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : viewHome();
   else html = views[r]();
@@ -578,11 +694,84 @@ const A = {
     set.add('bodyweight'); // el peso corporal siempre está disponible
     S.settings.equipment = [...set]; persist(); render();
   },
-  finishOnboarding() { S.settings.onboarded = true; persist(); history.replaceState({}, ''); go('tabs', 'home'); },
+  confirmEquip() { ui.onbStep = 4; ui.dir = 'fwd'; persist(); render(); },
+  finishOnboarding() { S.settings.onboarded = true; S.settings.weekSet = true; persist(); history.replaceState({}, ''); go('tabs', 'home'); touchAgenda(); },
+  openCalendar() { ui.calMonth = null; ui.calSel = todayStr(); go('calendar'); },
+  calPrev() { const [y, m] = (ui.calMonth ?? todayStr().slice(0, 7)).split('-').map(Number); const d = new Date(y, m - 2, 1); ui.calMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(); },
+  calNext() { const [y, m] = (ui.calMonth ?? todayStr().slice(0, 7)).split('-').map(Number); const d = new Date(y, m, 1); ui.calMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(); },
+  calSel(el) { ui.calSel = el.dataset.v; buzz(8); render(); },
+  trainToday() { go('tabs', 'home', 'back'); },
+  openSplits() { openModal({ type: 'splits' }); },
+  pickSplit(el) { ui.splitOverride = el.dataset.v; ui.modal = null; render(); },
+  skipToday() { openModal({ type: 'skip', date: todayStr() }); },
+  skipDate(el) { openModal({ type: 'skip', date: el.dataset.v }); },
+  skipReason(el) {
+    const date = ui.modal?.date ?? todayStr();
+    S.skips = (S.skips ?? []).filter((x) => x.date !== date);
+    S.skips.push({ date, reason: el.dataset.v, ts: Date.now() });
+    S.deletedDays = (S.deletedDays ?? []).filter((d) => d !== date);
+    ui.modal = null; ui.splitOverride = null; persist(); render(); touchAgenda(); bgSync();
+    const next = nextPlannedDay(agendaArgs());
+    toast(next ? t('skip.done', { split: splitName(next.split), day: fmtDate(next.date, { weekday: 'long' }) }) : t('skip.none'));
+  },
+  unskipToday() { A.unskipDate({ dataset: { v: todayStr() } }); },
+  unskipDate(el) {
+    const date = el.dataset.v;
+    S.skips = (S.skips ?? []).filter((x) => x.date !== date);
+    if (canSync(S)) S.deletedDays = [...new Set([...(S.deletedDays ?? []), date])];
+    persist(); render(); touchAgenda(); bgSync();
+  },
+  openWeekCfg() { openModal({ type: 'weekcfg' }); },
+  openRemind() { openModal({ type: 'remind' }); },
+  openEquipSheet() { openModal({ type: 'equipsheet' }); },
+  openSheetsSheet() { openModal({ type: 'sheetssheet' }); },
+  toggleDay(el) {
+    const w = { ...(S.settings.week ?? DEFAULT_WEEK) };
+    const i = Number(el.dataset.v);
+    const set = new Set(w.days);
+    set.has(i) ? set.delete(i) : set.add(i);
+    if (set.size === 0) return toast(t('week.atLeast'));
+    w.days = [...set].sort();
+    w.min = Math.min(w.min, w.days.length); w.max = Math.max(w.min, Math.min(w.max, 7));
+    S.settings.week = w; persist(); render(); touchAgenda();
+  },
+  weekStep(el) {
+    const w = { ...(S.settings.week ?? DEFAULT_WEEK) };
+    const f = el.dataset.f;
+    w[f] = Math.max(1, Math.min(7, w[f] + Number(el.dataset.d)));
+    if (f === 'min' && w.min > w.max) w.max = w.min;
+    if (f === 'max' && w.max < w.min) w.min = w.max;
+    S.settings.week = w; persist(); render(); touchAgenda();
+  },
+  toggleRemindApp(el) {
+    const r = remindCfg();
+    if (el.checked) {
+      if (!('Notification' in window)) { el.checked = false; return toast(t('remind.denied')); }
+      Notification.requestPermission().then((perm) => {
+        r.app = perm === 'granted';
+        S.settings.remind = r; persist(); render(); touchAgenda();
+        if (perm !== 'granted') toast(t('remind.denied'));
+      });
+    } else { r.app = false; S.settings.remind = r; persist(); render(); touchAgenda(); }
+  },
+  toggleRemindCal(el) { const r = remindCfg(); r.cal = el.checked; S.settings.remind = r; persist(); render(); touchAgenda(); if (r.cal) calNow(true); },
+  setRemindTime(el) { const r = remindCfg(); r.time = el.value || '18:00'; S.settings.remind = r; persist(); touchAgenda(); },
+  calNow() { calNow(true); },
+  clearHistory() {
+    ask(t('history.clearAsk'), () => {
+      if (canSync(S)) S.deleted = [...new Set([...S.deleted, ...S.history.map((x) => x.id)])];
+      S.history = []; S.pending = [];
+      persist(); render(); touchAgenda(); bgSync();
+      toast(t('history.cleared'));
+    });
+  },
   tab(el) { setTab(el.dataset.v); },
   minutes(el) { ui.minutes = Number(el.dataset.v); render(); },
   makePlan() {
-    ui.plan = makePlan({ mode: S.settings.mode, minutes: ui.minutes, available: available(), history: S.history });
+    const sug = suggestToday(agendaArgs());
+    const split = ui.splitOverride ?? sug.split;
+    ui.plan = makePlan({ mode: S.settings.mode, minutes: ui.minutes, available: available(), history: S.history, split, soft: needsSoftReturn(S.history, Date.now()) });
+    ui.plan.tired = (sug.rank.find((r) => r.split === split)?.tired) ?? [];
     if (!ui.plan.blocks.some((b) => b.type === 'exercise')) return toast(lang() === 'en' ? 'No exercises with your gear' : 'Sin ejercicios con tu equipo');
     go('plan');
   },
@@ -689,7 +878,7 @@ const A = {
       S.history = S.history.filter((s) => s.id !== id);
       S.pending = S.pending.filter((x) => x !== id);
       if (canSync(S)) S.deleted.push(id);
-      persist(); render(); bgSync();
+      persist(); render(); bgSync(); touchAgenda();
     });
   },
   exportCsv() { download('formd-historial.csv', csvFromHistory(S.history), 'text/csv'); },
@@ -773,8 +962,8 @@ function saveSummary() {
   };
   S.history.push(rec);
   if (canSync(S)) S.pending.push(rec.id);
-  S.active = null; ui.summary = null; ui.plan = null; ui.screen = null; ui.tab = 'history';
-  persist(); render(); window.scrollTo(0, 0); bgSync();
+  S.active = null; ui.summary = null; ui.plan = null; ui.screen = null; ui.tab = 'history'; ui.splitOverride = null;
+  persist(); render(); window.scrollTo(0, 0); bgSync(); touchAgenda();
 }
 
 // ---------- Sincronización ----------
@@ -794,18 +983,77 @@ async function doSync(show) {
 }
 const bgSync = () => { if (canSync(S) && navigator.onLine) doSync(false); };
 
+// ---------- Avisos y Google Calendar ----------
+const swPlan = () => {
+  const plan = planRange({ ...agendaArgs(), from: todayStr(), n: 7 });
+  return Object.fromEntries(Object.entries(plan).filter(([, v]) => !v.extra).map(([d, v]) => [d, splitName(v.split)]));
+};
+
+async function writeSwCfg() {
+  try {
+    const r = remindCfg();
+    const cfg = { app: r.app, time: r.time, plan: swPlan(), done: S.history.map((x) => String(x.fecha).slice(0, 10)), skips: (S.skips ?? []).map((x) => x.date), lang: lang() };
+    const c = await caches.open('formd-cfg');
+    await c.put('cfg.json', new Response(JSON.stringify(cfg), { headers: { 'content-type': 'application/json' } }));
+    const reg = await navigator.serviceWorker?.ready;
+    if (r.app && reg?.periodicSync) await reg.periodicSync.register('formd-reminder', { minInterval: 3600 * 1000 }).catch(() => {});
+  } catch { /* sin caché o sin service worker */ }
+}
+
+// Aviso cuando la app está abierta (el aviso en segundo plano lo intenta el service worker, sin garantía).
+async function maybeNotify() {
+  const r = remindCfg();
+  if (!r.app || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = todayStr();
+  const now = new Date();
+  const [h, m] = r.time.split(':').map(Number);
+  if (now.getHours() * 60 + now.getMinutes() < h * 60 + m) return;
+  const plan = swPlan();
+  if (!plan[today] || S.history.some((x) => String(x.fecha).startsWith(today)) || (S.skips ?? []).some((x) => x.date === today)) return;
+  try { if (localStorage.getItem('formd.notified') === today) return; localStorage.setItem('formd.notified', today); } catch { /* sin almacenamiento */ }
+  const reg = await navigator.serviceWorker?.ready;
+  const body = t('remind.body', { split: plan[today] });
+  if (reg?.showNotification) reg.showNotification('FORMD', { body, icon: 'icon-192.png', tag: 'formd-today' });
+  else new Notification('FORMD', { body });
+}
+
+let calTimer;
+async function calNow(show) {
+  const r = remindCfg();
+  if (!canSync(S)) { if (show) toast(t('remind.needSheets')); return; }
+  try {
+    const eventos = calendarEvents({ ...agendaArgs(), time: r.time, minutes: ui.minutes || 45, title: (sp) => DICT[S.settings.lang]['splitShort.' + sp] });
+    const today = todayStr();
+    await api(S, 'cal_sync', { eventos, desde: today, hasta: addDays(today, 6) });
+    if (show) toast(t('remind.sent'));
+  } catch (e) {
+    if (show) toast(t('sync.fail', { m: e.message }));
+  }
+}
+
+// Cada cambio en la agenda actualiza el aviso de la app y el calendario (con una pequeña espera).
+function touchAgenda() {
+  clearTimeout(calTimer);
+  calTimer = setTimeout(() => {
+    writeSwCfg();
+    maybeNotify();
+    if (remindCfg().cal && canSync(S)) calNow(false);
+  }, 1500);
+}
+setInterval(maybeNotify, 60000);
+
 // ---------- Eventos ----------
 // Respuesta al tocar (no al soltar): vibración suave inmediata en cualquier botón.
 $app.addEventListener('pointerdown', (e) => { if (e.target.closest('button,[data-a]')) buzz(8); }, { passive: true });
 $app.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');
-  if (!el || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type === 'checkbox')) return;
+  if (!el || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'time'))) return;
   if (el.dataset.v !== undefined) ui.popKey = `${el.dataset.a}|${el.dataset.v}`;
   A[el.dataset.a]?.(el, e);
 });
 $app.addEventListener('change', (e) => {
   const el = e.target.closest('[data-a]');
-  if (el && (el.tagName === 'SELECT' || el.type === 'checkbox')) A[el.dataset.a]?.(el, e);
+  if (el && (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'time')) A[el.dataset.a]?.(el, e);
 });
 
 // Reloj: actualiza cronómetros sin volver a dibujar toda la pantalla.
@@ -846,3 +1094,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 render();
 bgSync();
 loadBody().then((ok) => ok && render());
+touchAgenda();

@@ -44,12 +44,13 @@ export function viewOfRegion(code) {
   return 'front';
 }
 
-const opacityOf = (v) => (v > 0 ? (0.4 + 0.6 * Math.min(1, v)).toFixed(2) : '0');
+// Intensidad real: lo poco trabajado casi no se ve; lo muy trabajado brilla. Evita que parezca que todo se trabajó.
+const opacityOf = (v) => (v >= 0.06 ? (0.22 + 0.78 * Math.min(1, v)).toFixed(2) : '0');
 
 /**
  * @param {'front'|'back'} view
  * @param {Record<string, number>} fill  zona → 0..1
- * @param {{sex?: 'male'|'female', accent?: string, label?: string}} opts
+ * @param {{sex?: 'male'|'female', accent?: string, label?: string, now?: Set<string>}} opts
  */
 export function bodySVG(view, fill = {}, opts = {}) {
   const sex = opts.sex === 'female' ? 'female' : 'male';
@@ -65,7 +66,9 @@ export function bodySVG(view, fill = {}, opts = {}) {
   for (const [code, z] of Object.entries(d.zones)) {
     const clip = z.c ? ` clip-path="url(#c${k}-${code})"` : '';
     const uses = z.p.map((i) => `<use href="#p${k}${i}"/>`).join('');
-    hi += `<g class="z" data-region="${code}" style="opacity:${opacityOf(fill[code] ?? 0)}"${clip}>${uses}</g>`;
+    const isNow = opts.now?.has?.(code);
+    const op = isNow ? Math.max(Number(opacityOf(fill[code] ?? 0)), 0.14) : opacityOf(fill[code] ?? 0);
+    hi += `<g class="z${isNow ? ' now' : ''}" data-region="${code}" style="opacity:${op}"${clip}>${uses}</g>`;
   }
   const [x, y, w, h] = d.vb;
   return `<svg class="body" viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="${label}" style="--accent:${accent}">
@@ -75,6 +78,7 @@ export function bodySVG(view, fill = {}, opts = {}) {
 /** Actualiza la intensidad de cada zona en un SVG ya dibujado (la transición CSS anima el cambio). */
 export function applyFill(root, fill) {
   for (const el of root.querySelectorAll('.z[data-region]')) {
-    el.style.opacity = opacityOf(fill[el.dataset.region] ?? 0);
+    const op = Number(opacityOf(fill[el.dataset.region] ?? 0));
+    el.style.opacity = el.classList.contains('now') ? Math.max(op, 0.14) : op;
   }
 }
