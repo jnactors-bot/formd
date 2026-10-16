@@ -1,5 +1,5 @@
 // Red primero, caché de respaldo: las actualizaciones llegan y la app abre sin conexión en el gimnasio.
-const CACHE = "formd-v2";
+const CACHE = "formd-v3";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "engine.js", "store.js", "i18n.js", "bodymap.js", "catalog.js", "config.js", "manifest.webmanifest", "icon-192.png"];
 
 self.addEventListener("install", (e) => {

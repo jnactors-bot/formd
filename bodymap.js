@@ -73,9 +73,9 @@ export function bodySVG(view, fill = {}, opts = {}) {
   const parts = [];
   for (const [code, def] of Object.entries(defs)) {
     const v = Math.max(0, Math.min(1, fill[code] ?? 0));
-    const color = v > 0 ? accent : '#34342f';
+    const color = v > 0 ? accent : '#1c1c1a';
     const opacity = v > 0 ? (0.25 + 0.75 * v).toFixed(2) : '1';
-    const attrs = `fill="${color}" fill-opacity="${opacity}" stroke="#0A0A0A" stroke-width="1.5" data-region="${code}" ${opts.interactive ? 'tabindex="0" role="button"' : ''}`;
+    const attrs = `fill="${color}" fill-opacity="${opacity}" stroke="#000" stroke-width="1.5" data-region="${code}" ${opts.interactive ? 'tabindex="0" role="button"' : ''}`;
     for (const s of def.shapes) {
       parts.push(rect(s, attrs));
       if (def.mirror) parts.push(rect([mx(s[0], s[2]), s[1], s[2], s[3], s[4]], attrs));
@@ -83,7 +83,16 @@ export function bodySVG(view, fill = {}, opts = {}) {
   }
   const label = opts.label ?? (view === 'back' ? 'Cuerpo, vista de espalda' : 'Cuerpo, vista frontal');
   return `<svg class="body" viewBox="0 0 200 340" role="img" aria-label="${label}">
-    <g fill="#1d1d1b" stroke="#2a2a27" stroke-width="1.5">${SILHOUETTE.join('')}</g>
+    <g fill="#0b0b0a" stroke="#1f1f1d" stroke-width="1.5">${SILHOUETTE.join('')}</g>
     <g>${parts.join('')}</g>
   </svg>`;
+}
+
+/** Actualiza los colores de un SVG ya dibujado (la transición CSS hace la animación). */
+export function applyFill(root, fill, accent = '#C6FF3D') {
+  for (const el of root.querySelectorAll('[data-region]')) {
+    const v = Math.max(0, Math.min(1, fill[el.dataset.region] ?? 0));
+    el.style.fill = v > 0 ? accent : '#1c1c1a';
+    el.style.fillOpacity = v > 0 ? String(0.25 + 0.75 * v) : '1';
+  }
 }

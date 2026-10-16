@@ -65,6 +65,16 @@ const ES = {
   'evidence.note': 'Estas reglas resumen la literatura general. Cada ficha se completa con su cita y fecha al curarla.',
   'nav.today': 'Hoy', 'nav.history': 'Historial', 'nav.profile': 'Perfil',
   'kind.cardio': 'Cardio',
+  'mode.muscleShort': 'Hipertrofia y fuerza', 'mode.hybridShort': 'Fuerza + cardio',
+  'welcome.once': 'Lo eliges una vez. Se cambia en Perfil.',
+  'splitShort.push': 'Empuje', 'splitShort.pull': 'Tirón', 'splitShort.legs': 'Pierna', 'splitShort.upper': 'Fuerza superior', 'splitShort.lower': 'Fuerza inferior', 'splitShort.cardio_easy': 'Cardio suave', 'splitShort.cardio_interval': 'Intervalos',
+  'home.today': 'Hoy', 'home.sessionsShort': 'ses.', 'plan.exercises': '{n} ejercicios', 'plan.whyBtn': '¿Por qué este plan?', 'plan.whyTitle': 'Por qué este plan',
+  'equip.customize': 'Personalizar', 'equip.title2': 'Tu equipo',
+  'session.change': 'Cambiar ejercicio', 'session.addNote': '+ Nota', 'session.leaveTitle': '¿Salir de la sesión?', 'session.leaveBody': 'Se guarda y puedes continuar desde Inicio.',
+  'session.keep': 'Seguir', 'session.leave': 'Salir', 'session.plus15': '+15 s', 'session.exShort': '{n}/{total}',
+  'ask.yes': 'Sí', 'ask.no': 'No',
+  'summary.stats': 'Resumen', 'summary.fell': 'Quedaron cortas', 'summary.rateShort': 'Valoración',
+  'profile.edit': 'Editar',
 };
 
 const EN = {
@@ -133,6 +143,16 @@ const EN = {
   'evidence.note': 'These rules summarize the general literature. Each card gets its citation and date when curated.',
   'nav.today': 'Today', 'nav.history': 'History', 'nav.profile': 'Profile',
   'kind.cardio': 'Cardio',
+  'mode.muscleShort': 'Hypertrophy and strength', 'mode.hybridShort': 'Strength + cardio',
+  'welcome.once': 'You choose once. Change it in Profile.',
+  'splitShort.push': 'Push', 'splitShort.pull': 'Pull', 'splitShort.legs': 'Legs', 'splitShort.upper': 'Upper strength', 'splitShort.lower': 'Lower strength', 'splitShort.cardio_easy': 'Easy cardio', 'splitShort.cardio_interval': 'Intervals',
+  'home.today': 'Today', 'home.sessionsShort': 'sess.', 'plan.exercises': '{n} exercises', 'plan.whyBtn': 'Why this plan?', 'plan.whyTitle': 'Why this plan',
+  'equip.customize': 'Customize', 'equip.title2': 'Your gear',
+  'session.change': 'Swap exercise', 'session.addNote': '+ Note', 'session.leaveTitle': 'Leave the session?', 'session.leaveBody': 'It is saved and you can resume from Home.',
+  'session.keep': 'Keep going', 'session.leave': 'Leave', 'session.plus15': '+15 s', 'session.exShort': '{n}/{total}',
+  'ask.yes': 'Yes', 'ask.no': 'No',
+  'summary.stats': 'Summary', 'summary.fell': 'Fell short', 'summary.rateShort': 'Rating',
+  'profile.edit': 'Edit',
 };
 
 export const DICT = { es: ES, en: EN };
