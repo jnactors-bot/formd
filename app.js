@@ -1288,7 +1288,22 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+// Animación de marca: solo la primera vez que se abre la app.
+function splashOnce() {
+  let seen = false;
+  try { seen = localStorage.getItem('formd.splash') === '1'; localStorage.setItem('formd.splash', '1'); } catch { /* sin almacenamiento: no repetir */ seen = true; }
+  if (seen) return;
+  const el = document.createElement('div');
+  el.className = 'splash';
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = '<div class="splash-word">' + [...'FORMD'].map((c, i) => `<i data-c="${c}" style="--i:${i}"${c === 'D' ? ' class="ac"' : ''}></i>`).join('') + '</div><div class="splash-line"></div>';
+  document.body.append(el);
+  setTimeout(() => el.classList.add('out'), reduced() ? 600 : 2600);
+  setTimeout(() => el.remove(), reduced() ? 900 : 3400);
+}
+
 render();
+splashOnce();
 bgSync();
 loadBody().then((ok) => ok && render());
 touchAgenda();
