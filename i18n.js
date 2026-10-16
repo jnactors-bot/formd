@@ -89,7 +89,7 @@ const ES = {
   'consent.title': 'Antes de empezar', 'consent.item1': 'Guardamos tu correo, nombre, sexo y tus entrenamientos.', 'consent.item2': 'Sirven para que tu historial viaje contigo. No se venden ni se comparten.', 'consent.item3': 'Puedes exportarlos o borrarlos cuando quieras, en Perfil.', 'consent.policy': 'Política de privacidad', 'consent.accept': 'Acepto y continuar', 'consent.decline': 'No aceptar',
   'account.title': 'Mi cuenta', 'account.signIn': 'Entrar con Google', 'account.signOut': 'Cerrar sesión', 'account.signOutAsk': 'Se borra lo guardado en este celular (tus datos siguen en tu cuenta). ¿Salir?', 'account.export': 'Exportar mis datos', 'account.delete': 'Borrar mi cuenta y datos', 'account.deleteAsk': '¿Borrar tu cuenta y TODOS tus datos de FORMD? No se puede deshacer.', 'account.deleted': 'Cuenta borrada', 'account.expired': 'Tu sesión caducó. Entra de nuevo.',
   'profile.account': 'Cuenta', 'cal.addGoogle': 'Añadir a Google Calendar', 'remind.calAccount': 'Con tu cuenta, añade cada sesión con «Añadir a Google Calendar» en el calendario.',
-  'demo.watch': 'Ver cómo se hace', 'demo.simplified': 'Vista simplificada', 'demo.pause': 'Pausar', 'demo.play': 'Reproducir',
+  'demo.watch': 'Ver cómo se hace', 'demo.ready': 'Listo, registrar series', 'demo.pause': 'Pausar', 'demo.play': 'Reproducir',
   'profile.week': 'Mi semana', 'profile.remind': 'Avisos', 'history.clear': 'Borrar todo el historial', 'history.clearAsk': '¿Borrar TODOS los entrenamientos? No se puede deshacer.', 'history.cleared': 'Historial borrado',
   'sex.title': 'Tu cuerpo', 'sex.male': 'Hombre', 'sex.female': 'Mujer', 'sex.note': 'Para dibujar tu cuerpo y ajustar los pesos iniciales.', 'profile.sex': 'Sexo',
 };
@@ -184,7 +184,7 @@ const EN = {
   'consent.title': 'Before you start', 'consent.item1': 'We store your email, name, sex and your workouts.', 'consent.item2': 'They let your history travel with you. They are not sold or shared.', 'consent.item3': 'You can export or delete them any time, in Profile.', 'consent.policy': 'Privacy policy', 'consent.accept': 'I agree and continue', 'consent.decline': 'Decline',
   'account.title': 'My account', 'account.signIn': 'Sign in with Google', 'account.signOut': 'Sign out', 'account.signOutAsk': 'This clears what is saved on this phone (your data stays in your account). Sign out?', 'account.export': 'Export my data', 'account.delete': 'Delete my account and data', 'account.deleteAsk': 'Delete your account and ALL your FORMD data? This cannot be undone.', 'account.deleted': 'Account deleted', 'account.expired': 'Your session expired. Sign in again.',
   'profile.account': 'Account', 'cal.addGoogle': 'Add to Google Calendar', 'remind.calAccount': 'With your account, add each session with “Add to Google Calendar” in the calendar.',
-  'demo.watch': 'See how it is done', 'demo.simplified': 'Simplified view', 'demo.pause': 'Pause', 'demo.play': 'Play',
+  'demo.watch': 'See how it is done', 'demo.ready': 'Ready, log sets', 'demo.pause': 'Pause', 'demo.play': 'Play',
   'profile.week': 'My week', 'profile.remind': 'Reminders', 'history.clear': 'Delete all history', 'history.clearAsk': 'Delete ALL workouts? This cannot be undone.', 'history.cleared': 'History deleted',
   'sex.title': 'Your body', 'sex.male': 'Male', 'sex.female': 'Female', 'sex.note': 'To draw your body and set starting weights.', 'profile.sex': 'Sex',
 };

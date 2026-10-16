@@ -9,7 +9,7 @@ import {
   DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
 } from './engine.js';
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
-import { CUES, defaultView, mountDemo, moveKey } from './anim.js';
+import { CUES, moveKey } from './anim.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, save, scriptUrl, sync } from './store.js';
 
@@ -405,10 +405,27 @@ function viewSession() {
   if (a.restEnd && Date.now() < a.restEnd) body = viewRest(a);
   else if (b.type === 'warmup') body = simpleBlock(t('plan.warmup'), t('session.warmupDone'), 'nextBlock', b.minutes);
   else if (b.type === 'cooldown') body = simpleBlock(t('plan.cooldown'), t('session.cooldownDone'), 'finishSession', b.minutes);
+  else if (b.type === 'exercise' && a.introCode !== b.code) body = viewIntro(b);
   else if (b.kind === 'strength') body = viewStrength(a, b);
   else body = viewTimed(a, b);
-  const showBody = b.type === 'exercise' && !(a.restEnd && Date.now() < a.restEnd);
+  const showBody = b.type === 'exercise' && a.introCode === b.code && !(a.restEnd && Date.now() < a.restEnd);
   return `<main class="pad col stagger">${head}${banner}${body}${showBody ? bodyCard(a, b.code) : ''}</main>`;
+}
+
+function demoMedia(code) {
+  return `<div class="vid" aria-hidden="true"><img src="ex/${code}_0.jpg" alt="" decoding="async"><img class="b" src="ex/${code}_1.jpg" alt="" decoding="async"></div>`;
+}
+
+function viewIntro(b) {
+  const ex = BY_CODE.get(b.code);
+  const cues = (CUES[moveKey(ex)] ?? CUES.pulse)[lang()].slice(0, 3);
+  const meta = b.kind === 'strength' ? `${b.sets} × ${b.repMin}–${b.repMax}` : b.kind === 'cardio' ? `${Math.round(b.durationS / 60)} ${t('common.min')}` : `${b.sets} × ${b.durationS} s`;
+  return `<div class="col grow">
+    <div><div class="kicker">${meta}</div><h1 class="ex">${esc(exName(ex))}</h1></div>
+    ${demoMedia(b.code)}
+    <ul class="bullets cues">${cues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+    <button class="cta" data-a="introDone">${t('demo.ready')}</button>
+  </div>`;
 }
 
 function simpleBlock(title, cta, action, minutes) {
@@ -615,9 +632,8 @@ function modalHTML() {
   } else if (m.type === 'demo') {
     const ex = BY_CODE.get(m.code);
     const cues = (CUES[moveKey(ex)] ?? CUES.pulse)[lang()];
-    inner = `<div class="row between"><h2>${esc(exName(ex))}</h2><span class="mut xs">${t('demo.simplified')}</span></div>
-      <div class="demo-box" id="demo-fig" aria-live="off"></div>
-      <div class="row gap"><button class="seg grow" data-a="demoFlip">${m.view === 'front' ? t('session.back') : t('session.front')} ↻</button><button class="seg grow" data-a="demoPause" aria-label="${m.paused ? t('demo.play') : t('demo.pause')}">${m.paused ? ICON.play : ICON.pause}<span>${m.paused ? t('demo.play') : t('demo.pause')}</span></button></div>
+    inner = `<div class="row between"><h2>${esc(exName(ex))}</h2></div>
+      ${demoMedia(m.code)}
       <ul class="bullets cues">${cues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`;
   } else if (m.type === 'account') {
     inner = `<h2>${t('account.title')}</h2><p class="mut">${esc(S.account?.email ?? '')}</p>
@@ -710,18 +726,6 @@ function postRender(r, changed) {
   }
   if (r === 'summary' && changed && !reduced()) countUp();
   if (r === 'login') setTimeout(mountGoogleButton, 0);
-  syncDemo();
-}
-
-// La demostración animada vive mientras el modal esté abierto; se vuelve a montar si la pantalla se redibuja.
-let demoCtl = null;
-function syncDemo() {
-  const box = document.getElementById('demo-fig');
-  if (demoCtl) { demoCtl.stop(); demoCtl = null; }
-  if (!box || ui.modal?.type !== 'demo') return;
-  const ex = BY_CODE.get(ui.modal.code);
-  demoCtl = mountDemo(box, { sex: S.settings.sex ?? 'male', view: ui.modal.view, exercise: { ...ex, es: ex.es, weights: ex.weights }, key: moveKey(ex),
-    reduced: reduced(), at: ui.modal.paused ? 0.9 : undefined });
 }
 
 function countUp() {
@@ -764,11 +768,9 @@ const A = {
   },
   demo(el) {
     const ex = BY_CODE.get(el.dataset.v);
-    openModal({ type: 'demo', code: ex.code, view: defaultView(moveKey(ex)), paused: false });
-    loadBody().then((ok) => ok && render());
+    openModal({ type: 'demo', code: ex.code });
   },
-  demoFlip() { ui.modal.view = ui.modal.view === 'front' ? 'back' : 'front'; render(); },
-  demoPause() { ui.modal.paused = !ui.modal.paused; render(); },
+  introDone() { S.active.introCode = S.active.plan.blocks[S.active.idx].code; persist(); render(); },
   guest() { S.settings.guest = true; persist(); render(); },
   toLogin() { S.settings.guest = false; ui.loginMsg = ''; persist(); render(); },
   declineTerms() { signOutLocal(true); },
