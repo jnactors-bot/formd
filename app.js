@@ -10,6 +10,7 @@ import {
 } from './engine.js';
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
 import { CUES, moveKey } from './anim.js';
+import { exRemote } from './exmap.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, save, scriptUrl, sync } from './store.js';
 
@@ -413,7 +414,8 @@ function viewSession() {
 }
 
 function demoMedia(code) {
-  return `<div class="vid" aria-hidden="true"><img src="ex/${code}_0.jpg" alt="" decoding="async"><img class="b" src="ex/${code}_1.jpg" alt="" decoding="async"></div>`;
+  const img = (i, cls) => `<img ${cls} src="ex/${code}_${i}.jpg" data-rem="${exRemote(code, i)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
+  return `<div class="vid" aria-hidden="true">${img(0, '')}${img(1, 'class="b"')}</div>`;
 }
 
 function viewIntro(b) {
