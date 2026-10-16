@@ -22,6 +22,8 @@ export const defaults = () => ({
   active: null,
   pending: [], // ids de sesiones por enviar
   deleted: [], // ids borrados por enviar
+  account: null, // { email, name, token, exp, consent } cuando se entra con Google (servidor central)
+  lastEmail: null, // para no mezclar datos de dos cuentas en el mismo celular
   skips: [], // días en los que no se pudo entrenar: { date, reason, ts }
   deletedDays: [], // fechas de días perdidos quitados, por enviar
   lastSync: null,
@@ -56,17 +58,25 @@ export function exportBackup(state) {
 
 // ---------- Sincronización ----------
 export const scriptUrl = () => (typeof window !== 'undefined' && window.SCRIPT_URL) || '';
-export const canSync = (state) => Boolean(scriptUrl() && state.settings.code);
+export const centralUrl = () => (typeof window !== 'undefined' && window.CENTRAL_URL) || '';
+export const googleClientId = () => (typeof window !== 'undefined' && window.GOOGLE_CLIENT_ID) || '';
+export const accountMode = (state) => Boolean(state.account?.token && centralUrl());
+export const personalMode = (state) => !state.account && Boolean(scriptUrl() && state.settings.code);
+// Con cuenta de Google solo se sincroniza si ya aceptó los términos.
+export const canSync = (state) => (state.account ? Boolean(state.account.token && state.account.consent && centralUrl()) : personalMode(state));
 
 export async function api(state, action, extra = {}) {
+  const central = accountMode(state);
+  if (central && state.account.exp && state.account.exp * 1000 < Date.now() + 30000) throw Object.assign(new Error('auth'), { auth: false });
   // text/plain evita la consulta previa (CORS) que Apps Script no responde.
-  const res = await fetch(scriptUrl(), {
+  const res = await fetch(central ? centralUrl() : scriptUrl(), {
     method: 'POST',
     headers: { 'content-type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ token: state.settings.code, action, ...extra }),
+    body: JSON.stringify(central ? { idToken: state.account.token, action, ...extra } : { token: state.settings.code, action, ...extra }),
   });
   const data = await res.json().catch(() => ({}));
   if (data.auth === false) throw Object.assign(new Error('auth'), { auth: false });
+  if (data.consentimiento === false) throw Object.assign(new Error('consent'), { consent: false });
   if (!res.ok || data.error) throw new Error(data.error || 'Error ' + res.status);
   return data;
 }

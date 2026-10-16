@@ -267,3 +267,21 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .caltitle { font: 700 16px var(--display); }
 .monthnav { margin-top: -6px; } .monthnav .icon-btn { margin: 0; }
 .monthname { font: 700 15px var(--display); text-transform: none; }
+
+/* Cuenta de Google */
+.gsi { display: flex; justify-content: center; min-height: 44px; }
+.bullets { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 16px; color: var(--ink); }
+.acct { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcal { display: inline-block; margin-top: 4px; padding-left: 0; }
+
+/* Demostración animada */
+.demo-fig .z { transition: none; }
+.demo-fig { width: auto; height: 100%; max-width: 100%; }
+
+/* Demostración de ejercicios */
+.item { background: none; border-left: 0; border-right: 0; border-top: 0; color: inherit; text-align: left; width: 100%; font: inherit; font-size: clamp(15px, 2.2vh, 17px); }
+.item:active { opacity: .6; } .item .left { text-align: left; }
+.playdot { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--ac); flex: none; }
+.playdot svg { width: 12px; height: 12px; margin-left: 1px; }
+.demo-box { height: min(44vh, 400px); display: flex; justify-content: center; align-items: center; background: #000; border: 1px solid var(--line); border-radius: 20px; padding: 8px; overflow: hidden; }
+.cues { font-size: 15px; gap: 8px; } .cues li { color: var(--ink); }

@@ -9,8 +9,9 @@ import {
   DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
 } from './engine.js';
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
+import { CUES, defaultView, mountDemo, moveKey } from './anim.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
-import { api, canSync, exportBackup, load, save, scriptUrl, sync } from './store.js';
+import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, save, scriptUrl, sync } from './store.js';
 
 const LB = 2.2046226218;
 let S = load();
@@ -62,6 +63,8 @@ const ICON = {
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   history: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   profile: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   chev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   swap: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -98,6 +101,8 @@ async function keepAwake(on) {
 
 // ---------- Rutas ----------
 function route() {
+  if (centralUrl() && googleClientId() && !S.account && !S.settings.guest) return 'login';
+  if (S.account && !S.account.consent) return 'consent';
   if (!S.settings.onboarded) return ui.onbStep === 4 ? 'week' : ui.onbStep === 3 ? 'equip' : ui.onbStep === 2 ? 'sex' : 'welcome';
   if (ui.screen === 'summary' && ui.summary) return 'summary';
   if (ui.screen === 'session' && S.active) return 'session';
@@ -132,6 +137,32 @@ window.addEventListener('popstate', handleBack);
 // ---------- Vistas ----------
 const logo = () => `<div class="logo">FORM<span>D</span></div>`;
 const backBtn = (extra = '') => `<button class="icon-btn" data-a="back" aria-label="${t('common.back')}">${ICON.back}</button>${extra}`;
+
+function viewLogin() {
+  return `<main class="pad col stagger">
+    <div class="row between">${logo()}<span></span></div>
+    <div class="grow"></div>
+    <h1 class="hero">${t('login.title')}</h1>
+    <p class="mut">${t('login.sub')}</p>
+    <div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>
+    ${ui.loginMsg ? `<div class="warn">${esc(ui.loginMsg)}</div>` : ''}
+    <div class="grow"></div>
+    <button class="link" data-a="guest">${t('login.guest')}</button>
+    <p class="mut xs center">${t('login.guestNote')}</p>
+  </main>`;
+}
+
+function viewConsent() {
+  return `<main class="pad col stagger">
+    <div class="row between">${logo()}<button class="link tiny" data-a="declineTerms">${t('consent.decline')}</button></div>
+    <h1 class="hero">${t('consent.title')}</h1>
+    <ul class="bullets"><li>${t('consent.item1')}</li><li>${t('consent.item2')}</li><li>${t('consent.item3')}</li></ul>
+    <a class="link" href="privacidad.html" target="_blank" rel="noopener">${t('consent.policy')}</a>
+    <div class="grow"></div>
+    <div class="mut xs center">${esc(S.account?.email ?? '')}</div>
+    <button class="cta" data-a="acceptTerms">${t('consent.accept')}</button>
+  </main>`;
+}
 
 function viewWelcome() {
   const card = (id) => `<button class="mode ${ui.pickMode === id ? 'on' : ''}" data-a="pickMode" data-v="${id}" role="radio" aria-checked="${ui.pickMode === id}">
@@ -257,6 +288,16 @@ function viewHome() {
   </main>${nav()}`;
 }
 
+// Enlace de Google Calendar con la sesión ya rellena (sin permisos ni servidor: un toque y listo).
+function gcalLink(date, split) {
+  const [hh, mm] = (remindCfg().time || '18:00').split(':');
+  const start = date.replace(/-/g, '') + 'T' + hh + mm + '00';
+  const endMs = new Date(dateMs(date, Number(hh)) + (ui.minutes || 45) * 60000 + Number(mm) * 60000);
+  const end = `${endMs.getFullYear()}${pad(endMs.getMonth() + 1)}${pad(endMs.getDate())}T${pad(endMs.getHours())}${pad(endMs.getMinutes())}00`;
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: '💪 ' + splitName(split), dates: `${start}/${end}`, details: 'FORMD' });
+  return 'https://calendar.google.com/calendar/render?' + q.toString();
+}
+
 function viewCalendar() {
   const args = agendaArgs();
   const today = todayStr();
@@ -287,6 +328,7 @@ function viewCalendar() {
   if (done.length) detail = done.map((x) => `<div class="row between"><b>${esc(splitName(x.split) || x.titulo)}</b><span class="mut sm">${Math.round((x.segundos_real || 0) / 60)} ${t('common.min')}</span></div>`).join('');
   else if (sk) detail = `<div class="row between"><b>${t('cal.missed')}</b><span class="mut sm">${t('skip.' + sk.reason)}</span></div>`;
   else if (plan[sel]) detail = `<div class="row between"><b>${splitName(plan[sel].split)}</b><span class="mut sm">${plan[sel].extra ? t('week.extra') : t('cal.planned')}</span></div>`;
+  const gcal = plan[sel] && !done.length ? `<a class="link gcal" href="${gcalLink(sel, plan[sel].split)}" target="_blank" rel="noopener">${t('cal.addGoogle')}</a>` : '';
   const canSkip = sel <= today && !done.length && !sk;
   const actions = `<div class="row gap">${canSkip ? `<button class="seg grow" data-a="skipDate" data-v="${sel}">${t('skip.btn')}</button>` : ''}${sk ? `<button class="seg grow" data-a="unskipDate" data-v="${sel}">${t('skip.undo')}</button>` : ''}${sel === today && !done.length ? `<button class="seg grow on" data-a="trainToday">${t('cal.train')}</button>` : ''}</div>`;
   const wk = buildWeek(args);
@@ -294,7 +336,7 @@ function viewCalendar() {
     <div class="row between">${backBtn()}<b class="caltitle">${t('cal.title')}</b><span class="spacer44"></span></div>
     <div class="row between monthnav"><button class="icon-btn" data-a="calPrev" aria-label="‹">${ICON.back}</button><b class="monthname">${esc(monthTitle)}</b><button class="icon-btn" data-a="calNext" aria-label="›">${ICON.chev}</button></div>
     <div class="calwrap"><div class="calhead">${[0, 1, 2, 3, 4, 5, 6].map((i) => `<span>${dayLetter(i)}</span>`).join('')}</div><div class="calgrid">${cells.join('')}</div></div>
-    <div class="card daycard"><div class="label">${esc(fmtDate(sel, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>${detail}</div>
+    <div class="card daycard"><div class="label">${esc(fmtDate(sel, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>${detail}${gcal}</div>
     ${actions}
     <div class="row between calfoot"><span class="mut sm">${t('week.summary', { done: wk.doneDays, min: wk.min })}</span><button class="link" data-a="openWeekCfg">${t('week.adjust')}</button></div>
   </main>`;
@@ -306,7 +348,7 @@ function blockRow(b) {
   const ex = BY_CODE.get(b.code);
   const right = b.kind === 'cardio' ? (b.protocol ? `${b.protocol.rounds} × ${b.protocol.workS + b.protocol.easyS}s` : `${Math.round(b.durationS / 60)} ${t('common.min')}`)
     : b.kind === 'timed' ? `${b.sets} × ${b.durationS}s` : `${b.sets} × ${b.repMin}–${b.repMax}`;
-  return `<div class="row between item"><div class="grow"><b>${esc(exName(ex))}</b></div><span class="mut num-s">${right}</span></div>`;
+  return `<button class="row between item" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}: ${esc(exName(ex))}"><div class="grow left"><b>${esc(exName(ex))}</b></div><span class="mut num-s">${right}</span><span class="playdot">${ICON.play}</span></button>`;
 }
 
 function viewPlan() {
@@ -402,7 +444,7 @@ function viewStrength(a, b) {
   const weight = prefillKg ? toDisp(prefillKg) : 0;
   const reps = last?.reps ?? b.repMin;
   return `<div class="col grow">
-    <div class="row between top"><h1 class="ex">${esc(exName(ex))}</h1><button class="icon-btn" data-a="evidence" data-v="${(b.why ?? [])[0] ?? 'proximity'}" aria-label="${t('session.evidence')}">${ICON.info}</button></div>
+    <div class="row between top"><h1 class="ex">${esc(exName(ex))}</h1><div class="row"><button class="icon-btn" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}">${ICON.play}</button><button class="icon-btn" data-a="evidence" data-v="${(b.why ?? [])[0] ?? 'proximity'}" aria-label="${t('session.evidence')}">${ICON.info}</button></div></div>
     <div class="row gap"><span class="pill acc-pill">${t('session.set', { n: a.setNo, total: b.sets })}</span><span class="pill">${b.repMin}–${b.repMax} ${t('common.reps')}</span>
       ${last ? `<span class="mut xs grow right">${t('session.previous')} ${fmtW(last.peso_kg)} × ${last.reps}</span>` : ''}</div>
     ${stepper('f-w', weight, unit() === 'kg' ? 2.5 : 5, unit().toUpperCase(), unit())}
@@ -428,7 +470,7 @@ function viewTimed(a, b) {
   }
   const isCardio = b.kind === 'cardio';
   return `<div class="col grow center-col">
-    <h1 class="ex">${esc(exName(ex))}</h1>
+    <div class="row gap center"><h1 class="ex">${esc(exName(ex))}</h1><button class="icon-btn" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}">${ICON.play}</button></div>
     <div class="mut">${isCardio ? Math.round(b.durationS / 60) + ' ' + t('common.min') : t('session.set', { n: a.setNo, total: b.sets }) + ' · ' + b.durationS + ' s'}</div>
     <div class="big" data-tick="stopwatch">${mmss(el)}</div>${phase}
     <button class="cta" data-a="${running ? 'timerStop' : 'timerStart'}">${running ? t('session.stop') : t('session.start')}</button>
@@ -535,7 +577,8 @@ function viewProfile() {
       ${rowSheet('openWeekCfg', t('profile.week'), `<span class="mut sm">${(S.settings.week ?? DEFAULT_WEEK).min}–${(S.settings.week ?? DEFAULT_WEEK).max}</span>`)}
       ${rowSheet('openRemind', t('profile.remind'), `<span class="${r.app || r.cal ? 'dot-ok' : 'dot-off'}"></span>`)}
       ${rowSheet('openEquipSheet', t('profile.equip'))}
-      ${rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
+      ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : (centralUrl() && googleClientId() ? rowSheet('toLogin', t('account.signIn')) : '')}
+      ${S.account ? '' : rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
     </div>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
     <p class="mut xs center credit">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</p>
@@ -569,6 +612,18 @@ function modalHTML() {
       <div class="row gap"><button class="seg grow" data-a="closeModal">${t('session.keep')}</button><button class="seg grow bad" data-a="leaveSession">${t('session.leave')}</button></div>`;
   } else if (m.type === 'ask') {
     inner = `<p>${esc(m.text)}</p><div class="row gap"><button class="seg grow" data-a="closeModal">${t('ask.no')}</button><button class="seg grow on" data-a="askYes">${t('ask.yes')}</button></div>`;
+  } else if (m.type === 'demo') {
+    const ex = BY_CODE.get(m.code);
+    const cues = (CUES[moveKey(ex)] ?? CUES.pulse)[lang()];
+    inner = `<div class="row between"><h2>${esc(exName(ex))}</h2><span class="mut xs">${t('demo.simplified')}</span></div>
+      <div class="demo-box" id="demo-fig" aria-live="off"></div>
+      <div class="row gap"><button class="seg grow" data-a="demoFlip">${m.view === 'front' ? t('session.back') : t('session.front')} ↻</button><button class="seg grow" data-a="demoPause" aria-label="${m.paused ? t('demo.play') : t('demo.pause')}">${m.paused ? ICON.play : ICON.pause}<span>${m.paused ? t('demo.play') : t('demo.pause')}</span></button></div>
+      <ul class="bullets cues">${cues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`;
+  } else if (m.type === 'account') {
+    inner = `<h2>${t('account.title')}</h2><p class="mut">${esc(S.account?.email ?? '')}</p>
+      <button class="seg" data-a="exportAccount">${t('account.export')}</button>
+      <button class="seg" data-a="signOut">${t('account.signOut')}</button>
+      <button class="link bad" data-a="deleteAccount">${t('account.delete')}</button>`;
   } else if (m.type === 'skip') {
     inner = `<h2>${t('skip.title')}</h2><div class="reasons">${['work', 'tired', 'sick', 'travel', 'other'].map((k) => `<button class="seg" data-a="skipReason" data-v="${k}">${t('skip.' + k)}</button>`).join('')}</div>`;
   } else if (m.type === 'splits') {
@@ -587,10 +642,10 @@ function modalHTML() {
     inner = `<h2>${t('remind.title')}</h2>
       <label class="check"><span>${t('remind.app')}</span><input type="checkbox" data-a="toggleRemindApp" ${r.app ? 'checked' : ''}></label>
       <p class="mut xs">${t('remind.appNote')}</p>
-      <label class="check"><span>${t('remind.cal')}</span><input type="checkbox" data-a="toggleRemindCal" ${r.cal ? 'checked' : ''} ${canSync(S) ? '' : 'disabled'}></label>
-      <p class="mut xs">${canSync(S) ? t('remind.calNote') : t('remind.needSheets')}</p>
+      <label class="check"><span>${t('remind.cal')}</span><input type="checkbox" data-a="toggleRemindCal" ${r.cal ? 'checked' : ''} ${personalMode(S) ? '' : 'disabled'}></label>
+      <p class="mut xs">${personalMode(S) ? t('remind.calNote') : S.account ? t('remind.calAccount') : t('remind.needSheets')}</p>
       <label><span class="mut xs">${t('remind.time')}</span><input id="f-time" type="time" value="${esc(r.time)}" data-a="setRemindTime"></label>
-      ${canSync(S) ? `<button class="seg" data-a="calNow">${t('remind.now')}</button>` : ''}`;
+      ${personalMode(S) ? `<button class="seg" data-a="calNow">${t('remind.now')}</button>` : ''}`;
   } else if (m.type === 'sub') {
     const cur = BY_CODE.get(m.from);
     const last = lastPerformance(S.history, m.from);
@@ -602,7 +657,7 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = ['sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip'].includes(m.type);
+  const showClose = ['demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip'].includes(m.type);
   return `<div class="overlay" data-a="closeModal"><div class="sheet" role="dialog" aria-modal="true"><i class="grab"></i>${inner}
     ${showClose ? `<button class="link" data-a="closeModal">${m.type === 'sub' ? t('sub.wait') : t('common.close')}</button>` : ''}</div></div>`;
 }
@@ -611,7 +666,7 @@ function modalHTML() {
 function render() {
   setLang(S.settings.lang);
   const r = route();
-  const views = { welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
+  const views = { login: viewLogin, consent: viewConsent, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
   if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : viewHome();
   else html = views[r]();
@@ -654,6 +709,19 @@ function postRender(r, changed) {
     }));
   }
   if (r === 'summary' && changed && !reduced()) countUp();
+  if (r === 'login') setTimeout(mountGoogleButton, 0);
+  syncDemo();
+}
+
+// La demostración animada vive mientras el modal esté abierto; se vuelve a montar si la pantalla se redibuja.
+let demoCtl = null;
+function syncDemo() {
+  const box = document.getElementById('demo-fig');
+  if (demoCtl) { demoCtl.stop(); demoCtl = null; }
+  if (!box || ui.modal?.type !== 'demo') return;
+  const ex = BY_CODE.get(ui.modal.code);
+  demoCtl = mountDemo(box, { sex: S.settings.sex ?? 'male', view: ui.modal.view, exercise: { ...ex, es: ex.es, weights: ex.weights }, key: moveKey(ex),
+    reduced: reduced(), at: ui.modal.paused ? 0.9 : undefined });
 }
 
 function countUp() {
@@ -693,6 +761,41 @@ const A = {
     el.checked ? set.add(el.dataset.v) : set.delete(el.dataset.v);
     set.add('bodyweight'); // el peso corporal siempre está disponible
     S.settings.equipment = [...set]; persist(); render();
+  },
+  demo(el) {
+    const ex = BY_CODE.get(el.dataset.v);
+    openModal({ type: 'demo', code: ex.code, view: defaultView(moveKey(ex)), paused: false });
+    loadBody().then((ok) => ok && render());
+  },
+  demoFlip() { ui.modal.view = ui.modal.view === 'front' ? 'back' : 'front'; render(); },
+  demoPause() { ui.modal.paused = !ui.modal.paused; render(); },
+  guest() { S.settings.guest = true; persist(); render(); },
+  toLogin() { S.settings.guest = false; ui.loginMsg = ''; persist(); render(); },
+  declineTerms() { signOutLocal(true); },
+  async acceptTerms() {
+    try {
+      await api(S, 'consentir', { version: S.account.terminos ?? '2026-10' });
+      S.account.consent = true; persist(); render();
+      await afterConsent();
+    } catch (e) { toast(t('login.failed')); }
+  },
+  openAccount() { openModal({ type: 'account' }); },
+  signOut() { ui.modal = null; ask(t('account.signOutAsk'), () => signOutLocal(true)); },
+  async exportAccount() {
+    try {
+      const data = await api(S, 'cuenta_exportar');
+      download('formd-mis-datos.json', JSON.stringify(data, null, 2), 'application/json');
+    } catch (e) { toast(t('sync.fail', { m: e.message })); }
+  },
+  deleteAccount() {
+    ui.modal = null;
+    ask(t('account.deleteAsk'), async () => {
+      try {
+        await api(S, 'cuenta_borrar');
+        signOutLocal(true);
+        toast(t('account.deleted'));
+      } catch (e) { toast(t('sync.fail', { m: e.message })); }
+    });
   },
   confirmEquip() { ui.onbStep = 4; ui.dir = 'fwd'; persist(); render(); },
   finishOnboarding() { S.settings.onboarded = true; S.settings.weekSet = true; persist(); history.replaceState({}, ''); go('tabs', 'home'); touchAgenda(); },
@@ -971,17 +1074,107 @@ async function doSync(show) {
   if (!canSync(S) || ui.syncing) return;
   ui.syncing = true; render();
   try {
+    if (!(await ensureToken())) throw Object.assign(new Error('auth'), { auth: false });
     await sync(S);
     persist();
     if (show) toast(t('sync.ok'));
   } catch (e) {
-    if (e.auth === false) { S.settings.code = ''; persist(); toast(t('sync.badCode')); }
+    if (e.auth === false && S.account) { S.account.token = null; persist(); toast(t('account.expired')); }
+    else if (e.consent === false) { S.account.consent = false; persist(); render(); }
+    else if (e.auth === false) { S.settings.code = ''; persist(); toast(t('sync.badCode')); }
     else toast(navigator.onLine ? t('sync.fail', { m: e.message }) : t('sync.offline'));
   } finally {
     ui.syncing = false; render();
   }
 }
 const bgSync = () => { if (canSync(S) && navigator.onLine) doSync(false); };
+
+// ---------- Cuenta de Google (servidor central) ----------
+function decodeJwt(token) {
+  const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+let gisReady = false;
+let tokenWaiters = [];
+function initGoogle() {
+  if (gisReady || !googleClientId() || !centralUrl()) return;
+  if (!window.google?.accounts?.id) { setTimeout(initGoogle, 500); return; }
+  gisReady = true;
+  window.google.accounts.id.initialize({
+    client_id: googleClientId(), callback: onCredential, auto_select: true, cancel_on_tap_outside: false, use_fedcm_for_prompt: true,
+  });
+  if (route() === 'login') mountGoogleButton();
+}
+
+function mountGoogleButton() {
+  const el = document.getElementById('gsi');
+  if (!el || !gisReady) return;
+  window.google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: Math.min(320, el.clientWidth || 320), locale: lang() });
+}
+
+async function onCredential(resp) {
+  try {
+    const p = decodeJwt(resp.credential);
+    const email = String(p.email).toLowerCase();
+    // Si entra otra cuenta en este mismo celular, no se mezclan datos.
+    if (S.lastEmail && S.lastEmail !== email) wipeLocalData();
+    S.account = { email, name: p.name ?? '', token: resp.credential, exp: p.exp, consent: S.account?.email === email ? S.account.consent : false, terminos: S.account?.terminos };
+    S.lastEmail = email; ui.loginMsg = '';
+    for (const w of tokenWaiters.splice(0)) w(true);
+    persist();
+    if (S.account.consent && S.account.exp) { render(); doSync(false); return; }
+    const r = await api({ ...S, account: { ...S.account, consent: true } }, 'entrar');
+    S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
+    applyServerProfile(r.perfil);
+    persist(); render(); window.scrollTo(0, 0);
+    if (S.account.consent) afterConsent();
+  } catch (e) {
+    ui.loginMsg = navigator.onLine ? t('login.failed') : t('login.offline'); render();
+  }
+}
+
+function applyServerProfile(p) {
+  if (!p || !p.modo) return;
+  S.settings.mode = p.modo; S.settings.sex = p.sexo ?? S.settings.sex; S.settings.unit = p.unidad ?? S.settings.unit;
+  if (p.idioma) { S.settings.lang = p.idioma; setLang(p.idioma); }
+  if (p.semana) S.settings.week = p.semana;
+  if (p.avisos) S.settings.remind = { ...remindCfg(), app: Boolean(p.avisos.app), time: p.avisos.hora ?? remindCfg().time };
+  S.settings.onboarded = true; S.settings.weekSet = true; ui.onbStep = 4;
+}
+
+async function afterConsent() {
+  // Sube el perfil elegido en este celular (si es una cuenta nueva) y trae el historial.
+  try { await doSync(false); } catch { /* se reintenta luego */ }
+  touchAgenda();
+}
+
+// Renueva el token en silencio (dura 1 hora). Si no se puede, se pide entrar de nuevo.
+async function ensureToken() {
+  if (!accountMode(S)) return true;
+  if (S.account.exp * 1000 > Date.now() + 120000) return true;
+  if (!gisReady) return false;
+  const ok = new Promise((res) => { tokenWaiters.push(res); setTimeout(() => res(false), 8000); });
+  try { window.google.accounts.id.prompt(); } catch { return false; }
+  return ok;
+}
+
+function wipeLocalData() {
+  S.history = []; S.pending = []; S.deleted = []; S.skips = []; S.deletedDays = []; S.active = null;
+  ui.plan = null; ui.summary = null; ui.screen = null;
+}
+
+function signOutLocal(toLogin) {
+  const keep = { lang: S.settings.lang, unit: S.settings.unit };
+  try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* sin GIS */ }
+  wipeLocalData();
+  S.account = null; S.lastEmail = null;
+  S.settings = { ...load().settings, ...keep, guest: false };
+  S.settings.mode = null; S.settings.onboarded = false; ui.onbStep = 1; ui.modal = null;
+  persist(); render();
+  if (toLogin) setTimeout(mountGoogleButton, 100);
+}
 
 // ---------- Avisos y Google Calendar ----------
 const swPlan = () => {
@@ -1020,7 +1213,7 @@ async function maybeNotify() {
 let calTimer;
 async function calNow(show) {
   const r = remindCfg();
-  if (!canSync(S)) { if (show) toast(t('remind.needSheets')); return; }
+  if (!personalMode(S)) { if (show) toast(t('remind.needSheets')); return; }
   try {
     const eventos = calendarEvents({ ...agendaArgs(), time: r.time, minutes: ui.minutes || 45, title: (sp) => DICT[S.settings.lang]['splitShort.' + sp] });
     const today = todayStr();
@@ -1037,7 +1230,7 @@ function touchAgenda() {
   calTimer = setTimeout(() => {
     writeSwCfg();
     maybeNotify();
-    if (remindCfg().cal && canSync(S)) calNow(false);
+    if (remindCfg().cal && personalMode(S)) calNow(false);
   }, 1500);
 }
 setInterval(maybeNotify, 60000);
@@ -1095,3 +1288,4 @@ render();
 bgSync();
 loadBody().then((ok) => ok && render());
 touchAgenda();
+initGoogle();

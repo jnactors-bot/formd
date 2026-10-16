@@ -11,9 +11,10 @@ export function loadBody() {
   return loading;
 }
 export const bodyReady = () => Boolean(BODY);
+export const getBody = () => BODY;
 
 // Definiciones compartidas (una sola vez por sexo y vista): rutas y recortes de cada zona.
-function ensureDefs(sex) {
+export function ensureDefs(sex) {
   if (injected.has(sex) || !BODY) return;
   injected.add(sex);
   let out = '';
