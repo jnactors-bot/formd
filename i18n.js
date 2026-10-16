@@ -75,6 +75,7 @@ const ES = {
   'ask.yes': 'Sí', 'ask.no': 'No',
   'summary.stats': 'Resumen', 'summary.fell': 'Quedaron cortas', 'summary.rateShort': 'Valoración',
   'profile.edit': 'Editar',
+  'sex.title': 'Tu cuerpo', 'sex.male': 'Hombre', 'sex.female': 'Mujer', 'sex.note': 'Para dibujar tu cuerpo y ajustar los pesos iniciales.', 'profile.sex': 'Sexo',
 };
 
 const EN = {
@@ -153,6 +154,7 @@ const EN = {
   'ask.yes': 'Yes', 'ask.no': 'No',
   'summary.stats': 'Summary', 'summary.fell': 'Fell short', 'summary.rateShort': 'Rating',
   'profile.edit': 'Edit',
+  'sex.title': 'Your body', 'sex.male': 'Male', 'sex.female': 'Female', 'sex.note': 'To draw your body and set starting weights.', 'profile.sex': 'Sex',
 };
 
 export const DICT = { es: ES, en: EN };

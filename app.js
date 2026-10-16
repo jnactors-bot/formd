@@ -7,7 +7,7 @@ import {
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
 } from './engine.js';
-import { applyFill, bodySVG } from './bodymap.js';
+import { applyFill, bodySVG, loadBody } from './bodymap.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { canSync, exportBackup, load, save, scriptUrl, sync } from './store.js';
 
@@ -19,7 +19,7 @@ const TAB_ORDER = ['home', 'history', 'profile'];
 const ui = {
   screen: null, tab: 'home', minutes: 45, plan: null, view: 'front', histTab: 'date', histEx: null,
   modal: null, toast: '', hintDismissed: -1, summary: null, syncing: false, dir: 'fwd',
-  onbStep: S.settings.mode ? 2 : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0,
+  onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0,
 };
 
 const $app = document.getElementById('app');
@@ -43,7 +43,10 @@ const splitTitleEs = (split) => DICT.es['splitShort.' + split] ?? split;
 const available = () => new Set(S.settings.equipment);
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 // Sin historial, el peso arranca en un valor típico de principiante para no empezar desde 0.
-const startKg = (ex) => (ex.bodyweight ? 0 : ex.equipment === 'barbell' ? 20 : ex.equipment === 'dumbbell' || ex.equipment === 'kettlebell' ? 8 : 20);
+const startKg = (ex) => {
+  const base = ex.bodyweight ? 0 : ex.equipment === 'barbell' ? 20 : ex.equipment === 'dumbbell' || ex.equipment === 'kettlebell' ? 8 : 20;
+  return S.settings.sex === 'female' ? Math.round(base * 0.6 / 2.5) * 2.5 : base;
+};
 const primaryRegionsOf = (ex) => Object.entries(ex.weights).filter(([, w]) => w >= 0.7).map(([r]) => r);
 
 const ICON = {
@@ -86,13 +89,13 @@ async function keepAwake(on) {
 
 // ---------- Rutas ----------
 function route() {
-  if (!S.settings.onboarded) return ui.onbStep === 2 ? 'equip' : 'welcome';
+  if (!S.settings.onboarded) return ui.onbStep === 3 ? 'equip' : ui.onbStep === 2 ? 'sex' : 'welcome';
   if (ui.screen === 'summary' && ui.summary) return 'summary';
   if (ui.screen === 'session' && S.active) return 'session';
   if (ui.screen === 'plan' && ui.plan) return 'plan';
   return 'tabs';
 }
-const DEEP = new Set(['equip', 'plan', 'session']);
+const DEEP = new Set(['equip', 'sex', 'plan', 'session']);
 
 function go(screen, tab, dir = 'fwd') {
   ui.screen = screen; ui.dir = dir;
@@ -105,7 +108,8 @@ function go(screen, tab, dir = 'fwd') {
 function handleBack() {
   if (ui.modal) return closeModal();
   const r = route();
-  if (r === 'equip') { ui.onbStep = 1; ui.dir = 'back'; render(); return; }
+  if (r === 'equip') { ui.onbStep = 2; ui.dir = 'back'; render(); return; }
+  if (r === 'sex') { ui.onbStep = 1; ui.dir = 'back'; render(); return; }
   if (r === 'plan') { ui.plan = null; go('tabs', 'home', 'back'); return; }
   if (r === 'session') { openModal({ type: 'leave' }); history.pushState({ d: 1 }, ''); return; }
   if (r === 'summary') { history.pushState({ d: 1 }, ''); return; }
@@ -121,7 +125,7 @@ function viewWelcome() {
   const card = (id) => `<button class="mode ${ui.pickMode === id ? 'on' : ''}" data-a="pickMode" data-v="${id}" role="radio" aria-checked="${ui.pickMode === id}">
       <span class="mode-t">${t('mode.' + id)}</span><span class="mode-d">${t('mode.' + id + 'Short')}</span><i class="dot"></i></button>`;
   return `<main class="pad col stagger">
-    <div class="row between">${logo()}<span class="mut sm">1 / 2</span></div>
+    <div class="row between">${logo()}<span class="mut sm">1 / 3</span></div>
     <h1 class="hero">${t('welcome.title')}</h1>
     <div class="col gap" role="radiogroup">${card('muscle')}${card('hybrid')}</div>
     <div class="grow"></div>
@@ -129,6 +133,22 @@ function viewWelcome() {
     <button class="cta" data-a="confirmMode">${t('common.continue')}</button>
   </main>`;
 }
+
+function viewSex() {
+  const pick = ui.pickSex ?? S.settings.sex ?? 'male';
+  const all = Object.fromEntries([...REG_ALL].map((r) => [r, 0.75]));
+  const card = (id) => `<button class="sexcard ${pick === id ? 'on' : ''}" data-a="pickSex" data-v="${id}" role="radio" aria-checked="${pick === id}">
+      <div class="sexfig">${bodySVG('front', pick === id ? all : {}, { sex: id })}</div><span>${t('sex.' + id)}</span></button>`;
+  return `<main class="pad col stagger">
+    <div class="row between">${backBtn()}<span class="mut sm">2 / 3</span></div>
+    <h1 class="hero">${t('sex.title')}</h1>
+    <div class="row gap sexrow" role="radiogroup">${card('male')}${card('female')}</div>
+    <p class="mut xs center">${t('sex.note')}</p>
+    <button class="cta" data-a="confirmSex">${t('common.continue')}</button>
+  </main>`;
+}
+
+const REG_ALL = ['chest_clavicular', 'chest_sternal', 'chest_costal', 'delt_anterior', 'delt_lateral', 'biceps_long', 'biceps_short', 'brachialis', 'forearms', 'abs_upper', 'abs_lower', 'obliques', 'quads', 'adductors', 'calves'];
 
 function equipChecks() {
   return CATALOG.equipment.map((e) => {
@@ -144,11 +164,12 @@ function presetButtons() {
     `<button class="seg ${same(EQUIPMENT_PRESETS[p]) ? 'on' : ''}" data-a="preset" data-v="${p}">${t('equip.' + p)}</button>`).join('');
 }
 
+const bodyOpts = (extra = {}) => ({ sex: S.settings.sex ?? 'male', ...extra });
 const unitToggle = () => `<div class="row gap">${['kg', 'lb'].map((u) => `<button class="seg ${unit() === u ? 'on' : ''}" data-a="setUnit" data-v="${u}">${u}</button>`).join('')}</div>`;
 
 function viewEquip() {
   return `<main class="pad col stagger">
-    <div class="row between">${backBtn()}<span class="mut sm">2 / 2</span></div>
+    <div class="row between">${backBtn()}<span class="mut sm">3 / 3</span></div>
     <h1 class="hero">${t('equip.title2')}</h1>
     <div class="col gap">${presetButtons()}</div>
     <div class="card row between"><span>${t('equip.units')}</span>${unitToggle()}</div>
@@ -208,7 +229,6 @@ function viewPlan() {
       <div class="mut sm">${p.minutes} ${t('common.min')} · ${t('plan.exercises', { n })}</div></div>
     ${(p.warnings ?? []).slice(0, 1).map((w) => `<div class="warn">${t('warn.' + w.key)}</div>`).join('')}
     <div class="col list-plan">${p.blocks.map(blockRow).join('')}</div>
-    <div class="grow"></div>
     <button class="cta" data-a="startSession">${t('plan.start')}</button>
   </main>`;
 }
@@ -226,7 +246,7 @@ function bodyCard(a, code) {
   const shown = ui.prevFill ?? a.fill;
   const view = ui.view;
   return `<div class="body-card row gap">
-    <button class="body-wrap" data-a="flipView" aria-label="${view === 'front' ? t('session.back') : t('session.front')}">${bodySVG(view, shown)}</button>
+    <button class="body-wrap" data-a="flipView" aria-label="${view === 'front' ? t('session.back') : t('session.front')}">${bodySVG(view, shown, bodyOpts())}</button>
     <div class="grow zones">${primary.map((r) => {
       const pct = Math.round((shown[r] ?? 0) * 100);
       return `<div class="zone"><span>${esc(regionShort(r))}</span><div class="track"><u data-r="${r}" style="width:${pct}%"></u></div><b data-rp="${r}">${pct}%</b></div>`;
@@ -340,7 +360,7 @@ function viewSummary() {
       <div><b data-count="${Math.round(sm.seconds / 60)}">${Math.round(sm.seconds / 60)}</b><span>${t('common.min')}</span></div>
     </div>
     ${sm.prs ? `<div class="pr-badge">🏆 ${sm.prs} PR</div>` : ''}
-    <div class="row gap center bodies">${bodySVG('front', sm.fill, { label: t('session.front') })}${bodySVG('back', sm.fill, { label: t('session.back') })}</div>
+    <div class="row gap center bodies">${bodySVG('front', sm.fill, bodyOpts({ label: t('session.front') }))}${bodySVG('back', sm.fill, bodyOpts({ label: t('session.back') }))}</div>
     ${short ? `<div class="row gap wrap"><span class="mut xs">${t('summary.fell')}</span>${short}</div>` : ''}
     <div class="row gap stars" role="group" aria-label="${t('summary.rateShort')}">${[1, 2, 3, 4, 5].map((n) => `<button class="star ${ui.rating >= n ? 'on' : ''}" data-a="rate" data-v="${n}" aria-label="${n}">★</button>`).join('')}</div>
     <details class="more"><summary>${t('summary.fact')}</summary><p class="mt">${esc(fact[lang()])}</p><p class="mut xs mt">${t('evidence.level', { l: fact.level })} · ${t('evidence.noCite')}</p></details>
@@ -387,7 +407,7 @@ function viewHistory() {
     const sets = regionSetsLastDays(S.history, 7);
     const fill = Object.fromEntries(Object.entries(sets).map(([r, v]) => [r, Math.min(1, v / 10)]));
     const rows = Object.entries(sets).sort((a, b) => b[1] - a[1]).slice(0, 6);
-    body = `<div class="row gap center bodies">${bodySVG('front', fill)}${bodySVG('back', fill)}</div>
+    body = `<div class="row gap center bodies">${bodySVG('front', fill, bodyOpts())}${bodySVG('back', fill, bodyOpts())}</div>
       <div class="col zones">${rows.map(([r, v]) => `<div class="zone"><span>${esc(regionShort(r))}</span><div class="track"><u style="width:${Math.round(Math.min(1, v / 10) * 100)}%"></u></div><b>${v.toFixed(1)}</b></div>`).join('')}</div>`;
   } else {
     const done = [...new Set(S.history.flatMap((s) => (s.series ?? []).map((x) => x.ejercicio_code)))].filter((c) => BY_CODE.has(c));
@@ -412,9 +432,10 @@ function viewHistory() {
 // ---------- Perfil ----------
 function viewProfile() {
   const connected = canSync(S);
-  return `<main class="pad col stagger"><h1>${t('profile.title')}</h1>
+  return `<main class="pad col stagger compact"><h1>${t('profile.title')}</h1>
     <div class="card col"><span class="mut xs">${t('profile.mode')}</span>
       <div class="row gap">${['muscle', 'hybrid'].map((m) => `<button class="seg grow ${S.settings.mode === m ? 'on' : ''}" data-a="changeMode" data-v="${m}">${t('mode.' + m)}</button>`).join('')}</div></div>
+    <div class="card row between"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
     <div class="card row between"><span>${t('profile.unit')}</span>${unitToggle()}</div>
     <div class="card row between"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
     <details class="card more"><summary>${t('profile.equip')}</summary><div class="row gap mt wrap">${presetButtons()}</div><div class="col mt">${equipChecks()}</div></details>
@@ -423,6 +444,7 @@ function viewProfile() {
         <button class="seg mt" data-a="connect">${t('profile.test')}</button>` : `<div class="warn mt">${t('profile.noUrl')}</div>`}
       ${S.lastSync ? `<div class="mut xs mt">${t('profile.lastSync', { d: S.lastSync.slice(0, 16).replace('T', ' ') })}</div>` : ''}</details>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
+    <p class="mut xs center credit">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</p>
   </main>${nav()}`;
 }
 
@@ -473,7 +495,7 @@ function modalHTML() {
 function render() {
   setLang(S.settings.lang);
   const r = route();
-  const views = { welcome: viewWelcome, equip: viewEquip, plan: viewPlan, session: viewSession, summary: viewSummary };
+  const views = { welcome: viewWelcome, sex: viewSex, equip: viewEquip, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
   if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : viewHome();
   else html = views[r]();
@@ -483,6 +505,7 @@ function render() {
   const y = window.scrollY;
   $app.innerHTML = html + modalHTML() + (ui.toast ? `<div class="toast" role="status">${esc(ui.toast)}</div>` : '');
   const main = $app.querySelector('main');
+  if (main && $app.querySelector('.nav')) main.classList.add('has-nav');
   if (main && changed) main.classList.add(ui.dir === 'back' ? 'enter-back' : 'enter-fwd');
   else if (main) main.classList.add('still');
   if (changed && deeper) history.pushState({ r }, '');
@@ -542,7 +565,10 @@ function setTab(id) {
 const A = {
   back() { history.length > 1 && history.state ? history.back() : handleBack(); },
   pickMode(el) { ui.pickMode = el.dataset.v; buzz(10); render(); },
-  confirmMode() { S.settings.mode = ui.pickMode; ui.onbStep = 2; ui.dir = 'fwd'; persist(); render(); },
+  confirmMode() { S.settings.mode = ui.pickMode; ui.onbStep = S.settings.sex ? 3 : 2; ui.dir = 'fwd'; persist(); render(); },
+  pickSex(el) { ui.pickSex = el.dataset.v; buzz(10); render(); },
+  confirmSex() { S.settings.sex = ui.pickSex ?? S.settings.sex ?? 'male'; ui.onbStep = 3; ui.dir = 'fwd'; persist(); render(); },
+  setSex(el) { S.settings.sex = el.dataset.v; persist(); render(); },
   setLang(el) { S.settings.lang = el.dataset.v; setLang(el.dataset.v); persist(); render(); },
   setUnit(el) { S.settings.unit = el.dataset.v; persist(); render(); },
   preset(el) { S.settings.equipment = [...EQUIPMENT_PRESETS[el.dataset.v]]; persist(); render(); },
@@ -819,3 +845,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 render();
 bgSync();
+loadBody().then((ok) => ok && render());

@@ -7,6 +7,7 @@ const KEY = 'formd.v1';
 export const defaults = () => ({
   settings: {
     mode: null, // se elige una sola vez; solo se cambia desde Perfil
+    sex: null, // 'male' | 'female'; se pregunta al empezar
     unit: 'kg',
     lang: (navigator.language || 'es').toLowerCase().startsWith('en') ? 'en' : 'es',
     equipment: EQUIPMENT_PRESETS.gym,
@@ -103,7 +104,7 @@ export async function sync(state) {
   }
   state.history.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   await api(state, 'perfil_guardar', {
-    perfil: { modo: state.settings.mode, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restDefault, equipo: state.settings.equipment },
+    perfil: { modo: state.settings.mode, sexo: state.settings.sex, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restDefault, equipo: state.settings.equipment },
   });
   state.lastSync = new Date().toISOString();
   return { sent, added };
