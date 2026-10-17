@@ -300,7 +300,7 @@ function viewHome() {
   const chosen = sug.rank.find((r) => r.split === split) ?? sug;
   const todaySkip = (S.skips ?? []).find((x) => x.date === todayStr());
   const next = todaySkip ? nextPlannedDay(args) : null;
-  const resume = S.active ? `<button class="card accent-b resume" data-a="resume"><b>${t('home.resumeBtn')}</b><span class="mut xs">${esc(splitTitleEs(S.active.split))} · ${mmss((Date.now() - S.active.startedAt) / 1000)}</span></button>` : '';
+  const resume = S.active ? `<div class="row gap resume-row"><button class="card accent-b resume grow" data-a="resume"><b>${t('home.resumeBtn')}</b><span class="mut xs">${esc(splitTitleEs(S.active.split))} · ${mmss((Date.now() - S.active.startedAt) / 1000)}</span></button><button class="icon-btn" data-a="discardSession" aria-label="${t('home.discard')}">${ICON.trash}</button></div>` : '';
   let note = '';
   if (todaySkip) note = `<div class="mut sm">${t('skip.today')}${next ? ' · ' + t('skip.movedTo', { split: splitName(next.split), day: fmtDate(next.date, { weekday: 'long' }) }) : ''}</div>`;
   else if (sug.restAdvised && !ui.splitOverride) note = `<div class="warn">${t('home.restAdvised')}</div>`;
@@ -1046,6 +1046,7 @@ const A = {
     persist(); go('session');
   },
   resume() { go('session'); },
+  discardSession() { ask(t('home.discardAsk'), () => { S.active = null; restTimer(0); ui.screen = null; ui.plan = null; persist(); render(); toast(t('home.discarded')); }); },
   leaveSession() { ui.modal = null; ui.screen = null; ui.plan = null; render(); window.scrollTo(0, 0); },
   nextBlock() { advanceBlock(); },
   warmNext() {

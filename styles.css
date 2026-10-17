@@ -355,3 +355,6 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .datos input[type=date]::-webkit-date-and-time-value { text-align: left; min-width: 0; }
 .datos .fld, .datos .row { min-width: 0; max-width: 100%; }
 .datos { overflow-x: hidden; }
+
+.resume-row { align-items: stretch; }
+.resume-row .icon-btn { flex: none; align-self: center; }
