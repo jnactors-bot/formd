@@ -310,7 +310,7 @@ function viewHome() {
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
     ${resume}
-    ${S.account && ui.expired ? `<button class="adminnote" data-a="reconnect"><span>${t('account.reconnect')}</span></button>` : ''}
+    ${S.account && ui.expired ? `<div class="expired"><span>${t('account.reconnect')}</span><div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div></div>` : ''}
     ${isAdmin() && ui.adminPending > 0 ? `<button class="adminnote" data-a="openAdmin"><span class="bubble">${ui.adminPending}</span><span>${ui.adminPending === 1 ? t('admin.homeOne') : t('admin.homeMany', { n: ui.adminPending })}</span><span class="chev">${ICON.chev}</span></button>` : ''}
     <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
     <div class="grow-sm"></div>
@@ -841,7 +841,7 @@ function postRender(r, changed) {
     }));
   }
   if (r === 'summary' && changed && !reduced()) countUp();
-  if (r === 'login') setTimeout(mountGoogleButton, 0);
+  if (r === 'login' || (S.account && ui.expired)) setTimeout(mountGoogleButton, 0);
 }
 
 function countUp() {

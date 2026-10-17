@@ -365,3 +365,7 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .discard { flex: none; display: flex; align-items: center; gap: 6px; background: #170707; border: 1px solid #5a1f1f; color: #ff7a7a; border-radius: 999px; padding: 8px 12px; font: 600 13px var(--body); }
 .discard svg { width: 16px; height: 16px; }
 .discard:active { opacity: .6; }
+
+/* Aviso de reconexión con el botón de Google ya visible (en iPhone el aviso automático de Google no aparece) */
+.expired { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border: 1px solid #4a3a00; background: #140f00; border-radius: 16px; color: var(--warn); font-size: 13px; text-align: center; }
+.expired .gsi { min-height: 44px; width: 100%; }
