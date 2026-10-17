@@ -1281,7 +1281,7 @@ async function doSync(show) {
     persist();
     if (show) toast(t('sync.ok'));
   } catch (e) {
-    if (e.auth === false && S.account) { ui.expired = true; toast(t('account.expired')); }
+    if (e.auth === false && S.account) { S.account.sess = null; persist(); ui.expired = true; toast(t('account.expired')); }
     else if (e.approval === false && S.account) { S.account.estado = e.estado; persist(); render(); }
     else if (e.consent === false) { S.account.consent = false; persist(); render(); }
     else if (e.auth === false) { S.settings.code = ''; persist(); toast(t('sync.badCode')); }
@@ -1335,6 +1335,7 @@ async function refreshAccount() {
   if (!accountMode(S) || !S.account.consent) return;
   try {
     const r = await api(S, 'entrar');
+    if (r.sesion) S.account.sess = r.sesion;
     S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos ?? S.account.datos;
     S.account.admin = Boolean(r.admin);
     applyServerProfile(r.perfil);
@@ -1353,12 +1354,13 @@ async function onCredential(resp) {
     const email = String(p.email).toLowerCase();
     // Si entra otra cuenta en este mismo celular, no se mezclan datos.
     if (S.lastEmail && S.lastEmail !== email) wipeLocalData();
-    S.account = { email, name: p.name ?? '', token: resp.credential, exp: p.exp, consent: S.account?.email === email ? S.account.consent : false, terminos: S.account?.terminos };
+    S.account = { email, name: p.name ?? '', token: resp.credential, exp: p.exp, sess: null, consent: S.account?.email === email ? S.account.consent : false, terminos: S.account?.terminos };
     S.lastEmail = email; ui.loginMsg = ''; ui.expired = false;
     for (const w of tokenWaiters.splice(0)) w(true);
     persist();
     if (S.account.consent && S.account.exp) { render(); await refreshAccount(); return; }
     const r = await api({ ...S, account: { ...S.account, consent: true } }, 'entrar');
+    if (r.sesion) S.account.sess = r.sesion;
     S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
     S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos;
     S.account.admin = Boolean(r.admin);
@@ -1388,6 +1390,7 @@ async function afterConsent() {
 // Renueva el token en silencio (dura 1 hora). Si no se puede, se pide entrar de nuevo.
 async function ensureToken() {
   if (!accountMode(S)) return true;
+  if (S.account.sess) return true;
   if (S.account.token && S.account.exp * 1000 > Date.now() + 120000) return true;
   for (let i = 0; i < 20 && !gisReady; i++) await new Promise((r) => setTimeout(r, 250)); // espera a que cargue Google
   if (!gisReady) { ui.expired = true; return false; }
@@ -1404,6 +1407,7 @@ function wipeLocalData() {
 }
 
 function signOutLocal(toLogin) {
+  try { if (S.account?.sess && centralUrl()) api(S, 'salir').catch(() => {}); } catch { /* sin red */ }
   const keep = { lang: S.settings.lang, unit: S.settings.unit };
   try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* sin GIS */ }
   wipeLocalData();

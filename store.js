@@ -67,12 +67,13 @@ export const canSync = (state) => (state.account ? Boolean(state.account.consent
 
 export async function api(state, action, extra = {}) {
   const central = accountMode(state);
-  if (central && (!state.account.token || (state.account.exp && state.account.exp * 1000 < Date.now() + 30000))) throw Object.assign(new Error('auth'), { auth: false });
+  // Con sesión propia del servidor (180 días) no se depende de la hora de duración del token de Google.
+  if (central && !state.account.sess && (!state.account.token || (state.account.exp && state.account.exp * 1000 < Date.now() + 30000))) throw Object.assign(new Error('auth'), { auth: false });
   // text/plain evita la consulta previa (CORS) que Apps Script no responde.
   const res = await fetch(central ? centralUrl() : scriptUrl(), {
     method: 'POST',
     headers: { 'content-type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(central ? { idToken: state.account.token, action, ...extra } : { token: state.settings.code, action, ...extra }),
+    body: JSON.stringify(central ? (state.account.sess ? { sess: state.account.sess, action, ...extra } : { idToken: state.account.token, action, ...extra }) : { token: state.settings.code, action, ...extra }),
   });
   const data = await res.json().catch(() => ({}));
   if (data.auth === false) throw Object.assign(new Error('auth'), { auth: false });
