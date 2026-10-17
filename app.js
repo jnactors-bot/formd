@@ -11,6 +11,7 @@ import {
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
 import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
+import { cooldownFor, warmupFor, warmupRemote } from './warmup.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, save, scriptUrl, sync } from './store.js';
 
@@ -436,8 +437,8 @@ function viewSession() {
       <button class="link" data-a="dismissHint">${t('adapt.dismiss')}</button></div></div>` : '';
   let body;
   if (a.restEnd && Date.now() < a.restEnd) body = viewRest(a);
-  else if (b.type === 'warmup') body = simpleBlock(t('plan.warmup'), t('session.warmupDone'), 'nextBlock', b.minutes);
-  else if (b.type === 'cooldown') body = simpleBlock(t('plan.cooldown'), t('session.cooldownDone'), 'finishSession', b.minutes);
+  else if (b.type === 'warmup') body = viewWarmup(a, b, false);
+  else if (b.type === 'cooldown') body = viewWarmup(a, b, true);
   else if (b.type === 'exercise' && a.introCode !== b.code) body = viewIntro(b);
   else if (b.kind === 'strength') body = viewStrength(a, b);
   else body = viewTimed(a, b);
@@ -459,6 +460,29 @@ function viewIntro(b) {
     ${demoMedia(b.code)}
     <ul class="bullets cues">${cues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
     <button class="cta" data-a="introDone">${t('demo.ready')}</button>
+  </div>`;
+}
+
+function warmMoves(a, b, cd) { return cd ? cooldownFor() : warmupFor(a.split || a.plan?.split, b.minutes); }
+
+function viewWarmup(a, b, cd) {
+  const list = warmMoves(a, b, cd);
+  const i = Math.min(a.warmIdx || 0, list.length - 1);
+  const w = list[i];
+  if (!a.warmT0) a.warmT0 = Date.now();
+  const left = Math.max(0, w.secs - Math.floor((Date.now() - a.warmT0) / 1000));
+  const img = (n, cls) => `<img ${cls} src="ex/w_${w.key}_${n}.jpg" data-rem="${warmupRemote(w, n)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
+  const dots = list.map((_, k) => `<i class="${k < i ? 'on' : k === i ? 'cur' : ''}"></i>`).join('');
+  const last = i === list.length - 1;
+  return `<div class="col grow warm">
+    <div><div class="kicker">${b.minutes} ${t('common.min')} · ${t('warm.of', { n: i + 1, total: list.length })}</div><h1 class="ex">${cd ? t('plan.cooldown') : t('plan.warmup')}</h1></div>
+    <div class="vid" aria-hidden="true">${img(0, '')}${img(1, 'class="b"')}</div>
+    <div class="warm-name">${esc(w[lang()])}</div>
+    <p class="mut sm warm-cue">${esc(w.cue[lang()])}</p>
+    <div class="warm-t num-s" data-tick="warm">${mmss(left)}</div>
+    <div class="warm-dots">${dots}</div>
+    <button class="cta" data-a="warmNext">${last ? (cd ? t('session.cooldownDone') : t('warm.last')) : t('warm.next')}</button>
+    <button class="link" data-a="${cd ? 'finishSession' : 'nextBlock'}">${cd ? t('warm.skipCd') : t('warm.skip')}</button>
   </div>`;
 }
 
@@ -1022,6 +1046,13 @@ const A = {
   resume() { go('session'); },
   leaveSession() { ui.modal = null; ui.screen = null; ui.plan = null; render(); window.scrollTo(0, 0); },
   nextBlock() { advanceBlock(); },
+  warmNext() {
+    const a = S.active, b = a.plan.blocks[a.idx];
+    const cd = b.type === 'cooldown';
+    const n = warmMoves(a, b, cd).length;
+    if ((a.warmIdx || 0) + 1 >= n) { a.warmIdx = 0; a.warmT0 = 0; return cd ? finishSession() : advanceBlock(); }
+    a.warmIdx = (a.warmIdx || 0) + 1; a.warmT0 = Date.now(); persist(); render();
+  },
   step(el) {
     const input = document.getElementById(el.dataset.f);
     if (!input) return;
@@ -1163,7 +1194,7 @@ function recordSet(a, b, extra) {
 
 function advanceBlock() {
   const a = S.active;
-  a.idx += 1; a.setNo = 1; a.restEnd = null; a.timer = null; a.cardioSecs = 0;
+  a.idx += 1; a.warmIdx = 0; a.warmT0 = 0; a.setNo = 1; a.restEnd = null; a.timer = null; a.cardioSecs = 0;
   if (a.idx >= a.plan.blocks.length) return finishSession();
   persist(); render(); window.scrollTo(0, 0);
 }
@@ -1422,6 +1453,13 @@ setInterval(() => {
   if (!a || route() !== 'session') return;
   const el = $app.querySelector('[data-tick="elapsed"]');
   if (el) el.textContent = mmss(elapsedS(a));
+  const wt = $app.querySelector('[data-tick="warm"]');
+  if (wt && a.warmT0) {
+    const b = a.plan.blocks[a.idx];
+    const w = warmMoves(a, b, b.type === 'cooldown')[Math.min(a.warmIdx || 0, 9)];
+    const l = w ? Math.max(0, w.secs - Math.floor((Date.now() - a.warmT0) / 1000)) : 0;
+    if (wt.textContent !== mmss(l)) { wt.textContent = mmss(l); if (l === 0) { beep(880, 200); buzz(150); } }
+  }
   if (a.restEnd) {
     const left = Math.ceil((a.restEnd - Date.now()) / 1000);
     if (left <= 0) { a.restEnd = null; beep(990, 300); buzz([200, 100, 200]); persist(); render(); return; }

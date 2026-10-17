@@ -337,3 +337,16 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .ucard .seg { min-height: 38px; padding: 0 12px; font-size: 13px; }
 .ucard .seg:disabled { opacity: .5; }
 .brk { word-break: break-all; }
+/* El botón de Google trae un marco blanco cuando la página declara color-scheme oscuro: se aísla en esquema claro */
+.gsi { color-scheme: light; background: transparent; display: flex; justify-content: center; }
+.gsi iframe { color-scheme: light; background: transparent; border-radius: 999px; }
+
+/* Calentamiento / vuelta a la calma */
+.warm { gap: 10px; }
+.warm .vid { max-height: 36dvh; }
+.warm-name { font-size: 20px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
+.warm-cue { text-align: center; margin: 0; line-height: 1.35; }
+.warm-t { text-align: center; font-size: 34px; font-weight: 600; letter-spacing: -.02em; }
+.warm-dots { display: flex; justify-content: center; gap: 8px; }
+.warm-dots i { width: 7px; height: 7px; border-radius: 50%; background: #2a2a2a; }
+.warm-dots i.on { background: var(--mut); } .warm-dots i.cur { background: var(--ac); }
