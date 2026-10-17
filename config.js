@@ -2,5 +2,5 @@
 window.SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyyNdXjjnqk9tEAVuuD3-euu_0u-R4yl3EmpXaUt5SgxEkVNFctXvvSXeMm_aPzyFwZFw/exec";
 
 // Servidor central (varios usuarios con cuenta de Google). Si CENTRAL_URL queda vacío, la app no pide cuenta.
-window.CENTRAL_URL = "";
+window.CENTRAL_URL = "https://script.google.com/macros/s/AKfycbxGZ2OOrOJuGZbLQvrUo6ZunpxHncJqA_P1-W1L9YENlShNwWD2FmEPZtG4yV6ed_v2bw/exec";
 window.GOOGLE_CLIENT_ID = "601458989497-29q22jo84do0gg0evn39j0e975i90jq2.apps.googleusercontent.com";
