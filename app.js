@@ -310,6 +310,7 @@ function viewHome() {
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
     ${resume}
+    ${S.account && ui.expired ? `<button class="adminnote" data-a="reconnect"><span>${t('account.reconnect')}</span></button>` : ''}
     ${isAdmin() && ui.adminPending > 0 ? `<button class="adminnote" data-a="openAdmin"><span class="bubble">${ui.adminPending}</span><span>${ui.adminPending === 1 ? t('admin.homeOne') : t('admin.homeMany', { n: ui.adminPending })}</span><span class="chev">${ICON.chev}</span></button>` : ''}
     <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
     <div class="grow-sm"></div>
@@ -902,6 +903,7 @@ const A = {
       if (!S.account.estado || S.account.estado === 'Aprobado') afterConsent();
     } catch (e) { toast(e.approval === false ? t('datos.fail') : (e.message || t('datos.fail'))); }
   },
+  reconnect() { ui.expired = false; render(); ensureToken().then((ok) => { if (ok) refreshAccount(); else { ui.expired = true; render(); toast(t('account.expired')); } }); },
   async refreshAccount() {
     const before = S.account?.estado;
     await refreshAccount();
@@ -1243,7 +1245,7 @@ async function doSync(show) {
     persist();
     if (show) toast(t('sync.ok'));
   } catch (e) {
-    if (e.auth === false && S.account) { S.account.token = null; persist(); toast(t('account.expired')); }
+    if (e.auth === false && S.account) { ui.expired = true; toast(t('account.expired')); }
     else if (e.approval === false && S.account) { S.account.estado = e.estado; persist(); render(); }
     else if (e.consent === false) { S.account.consent = false; persist(); render(); }
     else if (e.auth === false) { S.settings.code = ''; persist(); toast(t('sync.badCode')); }
@@ -1316,7 +1318,7 @@ async function onCredential(resp) {
     // Si entra otra cuenta en este mismo celular, no se mezclan datos.
     if (S.lastEmail && S.lastEmail !== email) wipeLocalData();
     S.account = { email, name: p.name ?? '', token: resp.credential, exp: p.exp, consent: S.account?.email === email ? S.account.consent : false, terminos: S.account?.terminos };
-    S.lastEmail = email; ui.loginMsg = '';
+    S.lastEmail = email; ui.loginMsg = ''; ui.expired = false;
     for (const w of tokenWaiters.splice(0)) w(true);
     persist();
     if (S.account.consent && S.account.exp) { render(); await refreshAccount(); return; }
@@ -1350,11 +1352,14 @@ async function afterConsent() {
 // Renueva el token en silencio (dura 1 hora). Si no se puede, se pide entrar de nuevo.
 async function ensureToken() {
   if (!accountMode(S)) return true;
-  if (S.account.exp * 1000 > Date.now() + 120000) return true;
-  if (!gisReady) return false;
+  if (S.account.token && S.account.exp * 1000 > Date.now() + 120000) return true;
+  for (let i = 0; i < 20 && !gisReady; i++) await new Promise((r) => setTimeout(r, 250)); // espera a que cargue Google
+  if (!gisReady) { ui.expired = true; return false; }
   const ok = new Promise((res) => { tokenWaiters.push(res); setTimeout(() => res(false), 8000); });
-  try { window.google.accounts.id.prompt(); } catch { return false; }
-  return ok;
+  try { window.google.accounts.id.prompt(); } catch { ui.expired = true; return false; }
+  const done = await ok;
+  if (!done) { ui.expired = true; render(); }
+  return done;
 }
 
 function wipeLocalData() {
@@ -1491,9 +1496,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 // Animación de marca: solo la primera vez que se abre la app.
 function splashOnce() {
-  let seen = false;
-  try { seen = localStorage.getItem('formd.splash') === '1'; localStorage.setItem('formd.splash', '1'); } catch { /* sin almacenamiento: no repetir */ seen = true; }
-  if (seen) return;
+  try { if (sessionStorage.getItem('formd.splash') === '1') return; sessionStorage.setItem('formd.splash', '1'); } catch { /* sin almacenamiento */ }
   const el = document.createElement('div');
   el.className = 'splash';
   el.setAttribute('aria-hidden', 'true');
@@ -1509,5 +1512,7 @@ bgSync();
 loadBody().then((ok) => ok && render());
 touchAgenda();
 initGoogle();
-if (accountMode(S) && S.account.consent && S.account.datosOk === undefined && navigator.onLine) refreshAccount();
-else if (isAdmin()) adminLoad(true);
+if (accountMode(S) && S.account.consent && navigator.onLine) {
+  // Al abrir la app: renueva la sesión sin pedir nada (si Google ya la conoce) y trae estado, datos y rol de administrador.
+  (async () => { if (await ensureToken()) refreshAccount(); })();
+} else if (isAdmin()) adminLoad(true);

@@ -60,14 +60,14 @@ export function exportBackup(state) {
 export const scriptUrl = () => (typeof window !== 'undefined' && window.SCRIPT_URL) || '';
 export const centralUrl = () => (typeof window !== 'undefined' && window.CENTRAL_URL) || '';
 export const googleClientId = () => (typeof window !== 'undefined' && window.GOOGLE_CLIENT_ID) || '';
-export const accountMode = (state) => Boolean(state.account?.token && centralUrl());
+export const accountMode = (state) => Boolean(state.account?.email && centralUrl());
 export const personalMode = (state) => !state.account && Boolean(scriptUrl() && state.settings.code);
 // Con cuenta de Google solo se sincroniza si ya aceptó los términos.
-export const canSync = (state) => (state.account ? Boolean(state.account.token && state.account.consent && centralUrl() && (!state.account.estado || state.account.estado === 'Aprobado')) : personalMode(state));
+export const canSync = (state) => (state.account ? Boolean(state.account.consent && centralUrl() && (!state.account.estado || state.account.estado === 'Aprobado')) : personalMode(state));
 
 export async function api(state, action, extra = {}) {
   const central = accountMode(state);
-  if (central && state.account.exp && state.account.exp * 1000 < Date.now() + 30000) throw Object.assign(new Error('auth'), { auth: false });
+  if (central && (!state.account.token || (state.account.exp && state.account.exp * 1000 < Date.now() + 30000))) throw Object.assign(new Error('auth'), { auth: false });
   // text/plain evita la consulta previa (CORS) que Apps Script no responde.
   const res = await fetch(central ? centralUrl() : scriptUrl(), {
     method: 'POST',
