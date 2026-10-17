@@ -23,6 +23,7 @@ const ui = {
   screen: null, tab: 'home', minutes: 45, plan: null, view: 'front', histTab: 'date', histEx: null,
   modal: null, toast: '', hintDismissed: -1, summary: null, syncing: false, dir: 'fwd',
   onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0, splitOverride: null, calMonth: null, calSel: null,
+  adminPending: null, admin: null,
 };
 
 const $app = document.getElementById('app');
@@ -308,6 +309,7 @@ function viewHome() {
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
     ${resume}
+    ${isAdmin() && ui.adminPending > 0 ? `<button class="adminnote" data-a="openAdmin"><span class="bubble">${ui.adminPending}</span><span>${ui.adminPending === 1 ? t('admin.homeOne') : t('admin.homeMany', { n: ui.adminPending })}</span><span class="chev">${ICON.chev}</span></button>` : ''}
     <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
     <div class="grow-sm"></div>
     <div><div class="row between"><div class="kicker">${t('mode.' + mode).toUpperCase()}</div><button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>
@@ -627,11 +629,60 @@ function viewProfile() {
       ${rowSheet('openRemind', t('profile.remind'), `<span class="${r.app || r.cal ? 'dot-ok' : 'dot-off'}"></span>`)}
       ${rowSheet('openEquipSheet', t('profile.equip'))}
       ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : (centralUrl() && googleClientId() ? rowSheet('toLogin', t('account.signIn')) : '')}
+      ${isAdmin() ? rowSheet('openAdmin', t('admin.row'), ui.adminPending > 0 ? `<span class="bubble">${ui.adminPending}</span>` : '') : ''}
       ${S.account ? '' : rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
     </div>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
     <p class="mut xs center credit">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</p>
   </main>${nav()}`;
+}
+
+// ---------- Administración de accesos (solo la ve quien el servidor reconoce como admin) ----------
+const isAdmin = () => Boolean(S.account?.admin) && (!S.account.estado || S.account.estado === 'Aprobado');
+const ADMIN_TABS = [['Pendiente', 'admin.tabP'], ['Aprobado', 'admin.tabA'], ['Bloqueado', 'admin.tabB']];
+const adminState = () => (ui.admin ??= { list: null, tab: 'Pendiente', busy: null, loading: false, anim: true, pick: false });
+const adminCount = (st) => (adminState().list ?? []).filter((u) => u.estado === st).length;
+
+async function adminLoad(quiet) {
+  if (!isAdmin() || !navigator.onLine) return;
+  const a = adminState();
+  if (a.loading) return;
+  a.loading = true;
+  if (!quiet) render();
+  try {
+    const r = await api(S, 'admin_listar');
+    a.list = r.usuarios ?? [];
+    ui.adminPending = adminCount('Pendiente');
+    if (a.pick) { a.pick = false; a.tab = ui.adminPending > 0 ? 'Pendiente' : adminCount('Aprobado') ? 'Aprobado' : 'Pendiente'; }
+    a.anim = true;
+  } catch (e) {
+    if (!quiet) toast(e.auth === false ? t('account.expired') : t('admin.fail', { m: e.message }));
+  } finally {
+    a.loading = false; render();
+  }
+}
+
+function adminHTML() {
+  const a = adminState();
+  const rows = (a.list ?? []).filter((u) => u.estado === a.tab);
+  const anim = a.anim; a.anim = false;
+  const sexo = (x) => (x === 'male' || x === 'female' ? t('sex.' + x) : '');
+  const modo = (x) => (x === 'muscle' || x === 'hybrid' ? t('mode.' + x) : '');
+  const card = (u) => {
+    const nombre = [u.nombres, u.apellidos].filter(Boolean).join(' ');
+    const fisico = [u.edad != null ? u.edad : '', sexo(u.sexo), u.peso_kg ? u.peso_kg + ' kg' : '', u.talla_cm ? u.talla_cm + ' cm' : ''].filter((x) => x !== '').join(' · ');
+    const dis = a.busy ? 'disabled' : '';
+    const ok = `<button class="seg on grow" data-a="adminSet" data-e="${esc(u.email)}" data-v="Aprobado" ${dis}>${t('admin.approve')}</button>`;
+    const no = `<button class="seg bad grow" data-a="adminSet" data-e="${esc(u.email)}" data-v="Bloqueado" ${dis}>${t('admin.block')}</button>`;
+    return `<div class="ucard${anim ? ' in' : ''}${a.busy === u.email ? ' busy' : ''}">
+      <div class="row between"><b>${esc(nombre || t('admin.noData'))}</b><span class="mut xs">${u.creado ? t('admin.since', { d: fmtDate(u.creado.slice(0, 10), { day: 'numeric', month: 'short' }) }) : ''}</span></div>
+      <div class="mut xs brk">${esc(u.email)}${u.celular ? ' · ' + esc(u.celular) : ''}</div>
+      ${fisico || modo(u.modo) ? `<div class="xs">${esc(fisico)}${modo(u.modo) ? (fisico ? ' · ' : '') + '<span class="acc">' + modo(u.modo) + '</span>' : ''}</div>` : ''}
+      <div class="row gap">${u.estado === 'Pendiente' ? ok + no : u.estado === 'Aprobado' ? no : ok}</div></div>`;
+  };
+  return `<div class="row between"><h2>${t('admin.title')}</h2><button class="link" data-a="adminRefresh">${a.loading ? '<span class="spin">⟳</span> ' : ''}${t('admin.refresh')}</button></div>
+    <div class="row gap">${ADMIN_TABS.map(([k, key]) => `<button class="seg grow admtab ${a.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${t(key)} ${adminCount(k)}</button>`).join('')}</div>
+    <div class="adminlist col">${a.list == null ? `<p class="mut center">${t('admin.loading')}</p>` : rows.length ? rows.map(card).join('') : `<p class="mut center">${t('admin.empty')}</p>`}</div>`;
 }
 
 // ---------- Modales ----------
@@ -672,6 +723,8 @@ function modalHTML() {
       <button class="seg" data-a="exportAccount">${t('account.export')}</button>
       <button class="seg" data-a="signOut">${t('account.signOut')}</button>
       <button class="link bad" data-a="deleteAccount">${t('account.delete')}</button>`;
+  } else if (m.type === 'admin') {
+    inner = adminHTML();
   } else if (m.type === 'skip') {
     inner = `<h2>${t('skip.title')}</h2><div class="reasons">${['work', 'tired', 'sick', 'travel', 'other'].map((k) => `<button class="seg" data-a="skipReason" data-v="${k}">${t('skip.' + k)}</button>`).join('')}</div>`;
   } else if (m.type === 'splits') {
@@ -705,8 +758,11 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = ['demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip'].includes(m.type);
-  return `<div class="overlay" data-a="closeModal"><div class="sheet" role="dialog" aria-modal="true"><i class="grab"></i>${inner}
+  const showClose = ['demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
+  const adm = m.type === 'admin';
+  const still = adm && m.shown ? ' still' : '';
+  if (adm) m.shown = true;
+  return `<div class="overlay${still}" data-a="closeModal"><div class="sheet${adm ? ' adminsheet' : ''}${still}"${adm ? ' data-a="keep"' : ''} role="dialog" aria-modal="true"><i class="grab"></i>${inner}
     ${showClose ? `<button class="link" data-a="closeModal">${m.type === 'sub' ? t('sub.wait') : t('common.close')}</button>` : ''}</div></div>`;
 }
 
@@ -722,6 +778,7 @@ function render() {
   const changed = render.key !== key;
   const deeper = changed && DEEP.has(r) && ui.dir === 'fwd';
   const y = window.scrollY;
+  const ly = $app.querySelector('.adminlist')?.scrollTop ?? 0;
   $app.innerHTML = html + modalHTML() + (ui.toast ? `<div class="toast" role="status">${esc(ui.toast)}</div>` : '');
   const main = $app.querySelector('main');
   if (main && $app.querySelector('.nav')) main.classList.add('has-nav');
@@ -729,6 +786,8 @@ function render() {
   else if (main) main.classList.add('still');
   if (changed && deeper) history.pushState({ r }, '');
   if (!changed) window.scrollTo(0, y);
+  const al = $app.querySelector('.adminlist');
+  if (al && ly) al.scrollTop = ly;
   render.key = key;
   ui.dir = 'fwd';
   postRender(r, changed);
@@ -832,6 +891,27 @@ const A = {
     } catch (e) { toast(t('login.failed')); }
   },
   openAccount() { openModal({ type: 'account' }); },
+  keep() {},
+  openAdmin() { const a = adminState(); a.pick = true; a.anim = true; openModal({ type: 'admin' }); adminLoad(false); },
+  adminTab(el) { const a = adminState(); a.tab = el.dataset.v; a.anim = true; render(); },
+  adminRefresh() { adminLoad(false); },
+  async adminSet(el) {
+    const a = adminState();
+    if (a.busy) return;
+    const email = el.dataset.e, estado = el.dataset.v;
+    a.busy = email; render();
+    try {
+      const r = await api(S, 'admin_estado', { email, estado });
+      const u = (a.list ?? []).find((x) => x.email === r.email);
+      if (u) u.estado = r.estado;
+      ui.adminPending = adminCount('Pendiente');
+      a.busy = null;
+      toast(t(r.estado === 'Aprobado' ? 'admin.okA' : 'admin.okB') + ' · ' + (u ? [u.nombres, u.apellidos].filter(Boolean).join(' ') || u.email : r.email));
+    } catch (e) {
+      a.busy = null;
+      toast(e.auth === false ? t('account.expired') : t('admin.fail', { m: e.message }));
+    }
+  },
   signOut() { ui.modal = null; ask(t('account.signOutAsk'), () => signOutLocal(true)); },
   async exportAccount() {
     try {
@@ -1187,8 +1267,10 @@ async function refreshAccount() {
   try {
     const r = await api(S, 'entrar');
     S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos ?? S.account.datos;
+    S.account.admin = Boolean(r.admin);
     applyServerProfile(r.perfil);
     persist(); render();
+    if (isAdmin()) adminLoad(true);
     if (S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) doSync(false);
   } catch (e) {
     if (e.auth === false) return;
@@ -1210,6 +1292,7 @@ async function onCredential(resp) {
     const r = await api({ ...S, account: { ...S.account, consent: true } }, 'entrar');
     S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
     S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos;
+    S.account.admin = Boolean(r.admin);
     applyServerProfile(r.perfil);
     persist(); render(); window.scrollTo(0, 0);
     if (S.account.consent && S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) afterConsent();
@@ -1389,3 +1472,4 @@ loadBody().then((ok) => ok && render());
 touchAgenda();
 initGoogle();
 if (accountMode(S) && S.account.consent && S.account.datosOk === undefined && navigator.onLine) refreshAccount();
+else if (isAdmin()) adminLoad(true);
