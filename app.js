@@ -1080,8 +1080,8 @@ const A = {
     recordSet(a, b, { peso_kg: kg, reps, rir: rir === '' ? null : Number(rir), nota: document.getElementById('f-n')?.value || '', es_pr: pr });
     if (pr) { toast(t('session.pr')); buzz([60, 40, 60, 40, 120]); }
   },
-  plus15() { const a = S.active; a.restEnd += 15000; a.restTotal += 15; persist(); render(); },
-  skipRest() { S.active.restEnd = null; persist(); render(); },
+  plus15() { const a = S.active; a.restEnd += 15000; a.restTotal += 15; restTimer(a.restEnd - Date.now()); persist(); render(); },
+  skipRest() { S.active.restEnd = null; restTimer(0); persist(); render(); },
   timerStart() {
     const a = S.active; a.timer = { running: true, t0: Date.now(), accum: a.timer?.accum ?? 0, lastPhase: 'work' };
     beep(660, 120); persist(); render();
@@ -1175,6 +1175,40 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// ---------- Aviso de fin de descanso (vibra y avisa aunque la app esté en segundo plano o el reloj reciba la notificación) ----------
+let restWorker = null;
+function restTimer(ms) {
+  try {
+    if (!restWorker) {
+      const url = URL.createObjectURL(new Blob(["let t;onmessage=(e)=>{clearTimeout(t);if(e.data>0)t=setTimeout(()=>postMessage(1),e.data)}"], { type: 'text/javascript' }));
+      restWorker = new Worker(url);
+      restWorker.onmessage = () => restFinished();
+    }
+    restWorker.postMessage(ms);
+  } catch { /* sin worker: queda el contador normal */ }
+}
+
+function restFinished() {
+  const a = S.active;
+  if (!a || !a.restEnd || Date.now() < a.restEnd - 400) return;
+  a.restEnd = null;
+  beep(990, 300); buzz([300, 120, 300, 120, 600]);
+  const b = a.plan.blocks[a.idx];
+  if (document.hidden && b?.type === 'exercise' && 'Notification' in window && Notification.permission === 'granted') {
+    const ex = BY_CODE.get(b.code);
+    const body = `${exName(ex)} · ${t('session.set', { n: a.setNo, total: b.sets })}`;
+    navigator.serviceWorker?.ready.then((reg) => reg.showNotification(t('rest.done'), { body, icon: 'icon-192.png', tag: 'formd-rest', renotify: true, vibrate: [300, 120, 300, 120, 600] })).catch(() => {});
+  }
+  persist(); render();
+}
+
+// Pide el permiso de avisos una sola vez, en el primer descanso (con un toque del usuario).
+function askRestNotif() {
+  if (S.settings.restNotifAsked || !('Notification' in window) || Notification.permission !== 'default') return;
+  S.settings.restNotifAsked = true; persist();
+  try { Notification.requestPermission(); } catch { /* sin permiso */ }
+}
+
 function recordSet(a, b, extra) {
   const ex = BY_CODE.get(b.code);
   ui.prevFill = { ...a.fill };
@@ -1191,6 +1225,7 @@ function recordSet(a, b, extra) {
   } else {
     a.setNo += 1; a.restTotal = b.restS; a.restEnd = Date.now() + b.restS * 1000;
   }
+  if (a.restEnd) { restTimer(a.restEnd - Date.now()); askRestNotif(); } else restTimer(0);
   persist(); render();
 }
 
@@ -1467,7 +1502,7 @@ setInterval(() => {
   }
   if (a.restEnd) {
     const left = Math.ceil((a.restEnd - Date.now()) / 1000);
-    if (left <= 0) { a.restEnd = null; beep(990, 300); buzz([200, 100, 200]); persist(); render(); return; }
+    if (left <= 0) { restFinished(); return; }
     const r = $app.querySelector('[data-tick="rest"]');
     if (r) r.textContent = mmss(left);
     const ring = document.getElementById('ring');
