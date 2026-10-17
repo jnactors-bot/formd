@@ -63,7 +63,7 @@ export const googleClientId = () => (typeof window !== 'undefined' && window.GOO
 export const accountMode = (state) => Boolean(state.account?.token && centralUrl());
 export const personalMode = (state) => !state.account && Boolean(scriptUrl() && state.settings.code);
 // Con cuenta de Google solo se sincroniza si ya aceptó los términos.
-export const canSync = (state) => (state.account ? Boolean(state.account.token && state.account.consent && centralUrl()) : personalMode(state));
+export const canSync = (state) => (state.account ? Boolean(state.account.token && state.account.consent && centralUrl() && (!state.account.estado || state.account.estado === 'Aprobado')) : personalMode(state));
 
 export async function api(state, action, extra = {}) {
   const central = accountMode(state);
@@ -76,6 +76,7 @@ export async function api(state, action, extra = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (data.auth === false) throw Object.assign(new Error('auth'), { auth: false });
+  if (data.aprobacion === false) throw Object.assign(new Error('approval'), { approval: false, estado: data.estado });
   if (data.consentimiento === false) throw Object.assign(new Error('consent'), { consent: false });
   if (!res.ok || data.error) throw new Error(data.error || 'Error ' + res.status);
   return data;

@@ -3,7 +3,7 @@
 // respuesta al toque (no al soltar), vibración suave y regreso disponible en todas las pantallas.
 import { CATALOG } from './catalog.js';
 import {
-  BY_CODE, EQUIPMENT_PRESETS, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
+  BY_CODE, EQUIPMENT_PRESETS, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
   DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
@@ -104,6 +104,8 @@ async function keepAwake(on) {
 function route() {
   if (centralUrl() && googleClientId() && !S.account && !S.settings.guest) return 'login';
   if (S.account && !S.account.consent) return 'consent';
+  if (S.account && S.account.consent && S.account.datosOk === false) return 'datos';
+  if (S.account && S.account.estado && S.account.estado !== 'Aprobado') return 'pending';
   if (!S.settings.onboarded) return ui.onbStep === 4 ? 'week' : ui.onbStep === 3 ? 'equip' : ui.onbStep === 2 ? 'sex' : 'welcome';
   if (ui.screen === 'summary' && ui.summary) return 'summary';
   if (ui.screen === 'session' && S.active) return 'session';
@@ -165,13 +167,41 @@ function viewConsent() {
   </main>`;
 }
 
+function viewDatos() {
+  const d = S.account?.datos ?? {};
+  const f = (id, label, type, val, extra = '') => `<label class="fld"><span class="mut xs">${label}</span><input id="d-${id}" type="${type}" value="${esc(val ?? '')}" ${extra}></label>`;
+  return `<main class="pad col datos">
+    <div class="row between">${logo()}<span></span></div>
+    <h1 class="hero">${t('datos.title')}</h1>
+    <div class="row gap">${f('nombres', t('datos.nombres'), 'text', d.nombres, 'autocomplete="given-name"')}${f('apellidos', t('datos.apellidos'), 'text', d.apellidos, 'autocomplete="family-name"')}</div>
+    ${f('nacimiento', t('datos.nacimiento'), 'date', d.nacimiento)}
+    <div class="row gap">${f('peso', t('datos.peso'), 'number', d.peso_kg, 'inputmode="decimal" step="0.1" min="25" max="400"')}${f('talla', t('datos.talla'), 'number', d.talla_cm, 'inputmode="numeric" min="100" max="250"')}</div>
+    ${f('celular', t('datos.celular'), 'tel', d.celular, 'autocomplete="tel" inputmode="tel"')}
+    <div class="grow"></div>
+    <button class="cta" data-a="saveDatos">${t('common.continue')}</button>
+    <button class="link" data-a="declineTerms">${t('datos.signOut')}</button>
+  </main>`;
+}
+
+function viewPending() {
+  const blocked = S.account?.estado === 'Bloqueado';
+  return `<main class="pad col center-col">
+    ${logo()}
+    <h1 class="hero">${t(blocked ? 'pending.blockedTitle' : 'pending.title')}</h1>
+    <p class="mut">${t(blocked ? 'pending.blockedSub' : 'pending.sub')}</p>
+    <div class="mut xs">${esc(S.account?.email ?? '')}</div>
+    <button class="cta" data-a="refreshAccount">${t('pending.retry')}</button>
+    <button class="link" data-a="declineTerms">${t('datos.signOut')}</button>
+  </main>`;
+}
+
 function viewWelcome() {
   const card = (id) => `<button class="mode ${ui.pickMode === id ? 'on' : ''}" data-a="pickMode" data-v="${id}" role="radio" aria-checked="${ui.pickMode === id}">
       <span class="mode-t">${t('mode.' + id)}</span><span class="mode-d">${t('mode.' + id + 'Short')}</span><i class="dot"></i></button>`;
   return `<main class="pad col stagger">
     <div class="row between">${logo()}<span class="mut sm">1 / 3</span></div>
     <h1 class="hero">${t('welcome.title')}</h1>
-    <div class="col gap" role="radiogroup">${card('muscle')}${card('hybrid')}</div>
+    <div class="col gap" role="radiogroup">${card('muscle')}${card('strength')}${card('hybrid')}${card('fatloss')}</div>
     <div class="grow"></div>
     <p class="mut xs center">${t('welcome.once')}</p>
     <button class="cta" data-a="confirmMode">${t('common.continue')}</button>
@@ -273,7 +303,7 @@ function viewHome() {
   if (todaySkip) note = `<div class="mut sm">${t('skip.today')}${next ? ' · ' + t('skip.movedTo', { split: splitName(next.split), day: fmtDate(next.date, { weekday: 'long' }) }) : ''}</div>`;
   else if (sug.restAdvised && !ui.splitOverride) note = `<div class="warn">${t('home.restAdvised')}</div>`;
   else if (chosen.tired?.length) note = `<div class="warn">${t('home.tired', { z: regionShort(chosen.tired[0].region), h: chosen.tired[0].hours })}</div>`;
-  else if (mode === 'hybrid') { const w = hybridWarnings(S.history, split)[0]; if (w) note = `<div class="warn">${t('warn.' + w.key)}</div>`; }
+  else if (baseMode(mode) === 'hybrid') { const w = hybridWarnings(S.history, split)[0]; if (w) note = `<div class="warn">${t('warn.' + w.key)}</div>`; }
   const soft = needsSoftReturn(S.history, Date.now()) ? `<span class="pill">${t('home.softReturn')}</span>` : '';
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
@@ -329,7 +359,7 @@ function viewCalendar() {
   if (done.length) detail = done.map((x) => `<div class="row between"><b>${esc(splitName(x.split) || x.titulo)}</b><span class="mut sm">${Math.round((x.segundos_real || 0) / 60)} ${t('common.min')}</span></div>`).join('');
   else if (sk) detail = `<div class="row between"><b>${t('cal.missed')}</b><span class="mut sm">${t('skip.' + sk.reason)}</span></div>`;
   else if (plan[sel]) detail = `<div class="row between"><b>${splitName(plan[sel].split)}</b><span class="mut sm">${plan[sel].extra ? t('week.extra') : t('cal.planned')}</span></div>`;
-  const gcal = plan[sel] && !done.length ? `<a class="link gcal" href="${gcalLink(sel, plan[sel].split)}" target="_blank" rel="noopener">${t('cal.addGoogle')}</a>` : '';
+  const gcal = plan[sel] && !done.length && (!S.account || remindCfg().cal) ? `<a class="link gcal" href="${gcalLink(sel, plan[sel].split)}" target="_blank" rel="noopener">${t('cal.addGoogle')}</a>` : '';
   const canSkip = sel <= today && !done.length && !sk;
   const actions = `<div class="row gap">${canSkip ? `<button class="seg grow" data-a="skipDate" data-v="${sel}">${t('skip.btn')}</button>` : ''}${sk ? `<button class="seg grow" data-a="unskipDate" data-v="${sel}">${t('skip.undo')}</button>` : ''}${sel === today && !done.length ? `<button class="seg grow on" data-a="trainToday">${t('cal.train')}</button>` : ''}</div>`;
   const wk = buildWeek(args);
@@ -589,7 +619,7 @@ function viewProfile() {
   const r = remindCfg();
   return `<main class="pad col stagger compact"><h1>${t('profile.title')}</h1>
     <div class="col list">
-      <div class="rowitem"><span>${t('profile.mode')}</span><div class="row gap">${['muscle', 'hybrid'].map((m) => `<button class="seg ${S.settings.mode === m ? 'on' : ''}" data-a="changeMode" data-v="${m}">${t('mode.' + m)}</button>`).join('')}</div></div>
+      <div class="rowitem"><span>${t('profile.mode')}</span><div class="row gap"><select class="seg selmode" data-a="changeModeSel" aria-label="${t('profile.mode')}">${MODES.map((m) => `<option value="${m}" ${S.settings.mode === m ? 'selected' : ''}>${t('mode.' + m)}</option>`).join('')}</select></div></div>
       <div class="rowitem"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
       <div class="rowitem"><span>${t('profile.unit')}</span>${unitToggle()}</div>
       <div class="rowitem"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
@@ -660,7 +690,7 @@ function modalHTML() {
     inner = `<h2>${t('remind.title')}</h2>
       <label class="check"><span>${t('remind.app')}</span><input type="checkbox" data-a="toggleRemindApp" ${r.app ? 'checked' : ''}></label>
       <p class="mut xs">${t('remind.appNote')}</p>
-      <label class="check"><span>${t('remind.cal')}</span><input type="checkbox" data-a="toggleRemindCal" ${r.cal ? 'checked' : ''} ${personalMode(S) ? '' : 'disabled'}></label>
+      <label class="check"><span>${t('remind.cal')}</span><input type="checkbox" data-a="toggleRemindCal" ${r.cal ? 'checked' : ''} ${personalMode(S) || S.account ? "" : "disabled"}></label>
       <p class="mut xs">${personalMode(S) ? t('remind.calNote') : S.account ? t('remind.calAccount') : t('remind.needSheets')}</p>
       <label><span class="mut xs">${t('remind.time')}</span><input id="f-time" type="time" value="${esc(r.time)}" data-a="setRemindTime"></label>
       ${personalMode(S) ? `<button class="seg" data-a="calNow">${t('remind.now')}</button>` : ''}`;
@@ -684,7 +714,7 @@ function modalHTML() {
 function render() {
   setLang(S.settings.lang);
   const r = route();
-  const views = { login: viewLogin, consent: viewConsent, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
+  const views = { login: viewLogin, consent: viewConsent, datos: viewDatos, pending: viewPending, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
   if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : viewHome();
   else html = views[r]();
@@ -776,9 +806,27 @@ const A = {
   guest() { S.settings.guest = true; persist(); render(); },
   toLogin() { S.settings.guest = false; ui.loginMsg = ''; persist(); render(); },
   declineTerms() { signOutLocal(true); },
+  async saveDatos() {
+    const v = (id) => document.getElementById('d-' + id)?.value.trim() ?? '';
+    const datos = { nombres: v('nombres'), apellidos: v('apellidos'), nacimiento: v('nacimiento'), peso_kg: Number(v('peso').replace(',', '.')), talla_cm: Number(v('talla')), celular: v('celular') };
+    S.account.datos = datos; // conserva lo escrito si falla
+    const err = validarDatos(datos);
+    if (err) return toast(t(err));
+    try {
+      const r = await api(S, 'datos_guardar', { datos });
+      S.account.datosOk = true; S.account.datos = r.datos ?? datos; S.account.estado = r.estado ?? S.account.estado;
+      persist(); render(); window.scrollTo(0, 0);
+      if (!S.account.estado || S.account.estado === 'Aprobado') afterConsent();
+    } catch (e) { toast(e.approval === false ? t('datos.fail') : (e.message || t('datos.fail'))); }
+  },
+  async refreshAccount() {
+    const before = S.account?.estado;
+    await refreshAccount();
+    if (S.account?.estado === before && route() === 'pending') toast(t('pending.same'));
+  },
   async acceptTerms() {
     try {
-      await api(S, 'consentir', { version: S.account.terminos ?? '2026-10' });
+      await api(S, 'consentir', { version: S.account.terminos ?? '2026-11' });
       S.account.consent = true; persist(); render();
       await afterConsent();
     } catch (e) { toast(t('login.failed')); }
@@ -861,7 +909,7 @@ const A = {
       });
     } else { r.app = false; S.settings.remind = r; persist(); render(); touchAgenda(); }
   },
-  toggleRemindCal(el) { const r = remindCfg(); r.cal = el.checked; S.settings.remind = r; persist(); render(); touchAgenda(); if (r.cal) calNow(true); },
+  toggleRemindCal(el) { const r = remindCfg(); r.cal = el.checked; S.settings.remind = r; persist(); render(); touchAgenda(); if (r.cal && personalMode(S)) calNow(true); else if (r.cal) toast(t('remind.calOn')); },
   setRemindTime(el) { const r = remindCfg(); r.time = el.value || '18:00'; S.settings.remind = r; persist(); touchAgenda(); },
   calNow() { calNow(true); },
   clearHistory() {
@@ -992,6 +1040,7 @@ const A = {
   backup() { download('formd-copia.json', exportBackup(S), 'application/json'); },
   doSync() { doSync(true); },
   connect() { S.settings.code = document.getElementById('f-code')?.value.trim() ?? ''; persist(); doSync(true); },
+  changeModeSel(el) { const m = el.value; if (m === S.settings.mode) return; ask(t('profile.changeModeAsk'), () => { S.settings.mode = m; persist(); render(); }); },
   changeMode(el) {
     const m = el.dataset.v;
     if (m === S.settings.mode) return;
@@ -1084,6 +1133,7 @@ async function doSync(show) {
     if (show) toast(t('sync.ok'));
   } catch (e) {
     if (e.auth === false && S.account) { S.account.token = null; persist(); toast(t('account.expired')); }
+    else if (e.approval === false && S.account) { S.account.estado = e.estado; persist(); render(); }
     else if (e.consent === false) { S.account.consent = false; persist(); render(); }
     else if (e.auth === false) { S.settings.code = ''; persist(); toast(t('sync.badCode')); }
     else toast(navigator.onLine ? t('sync.fail', { m: e.message }) : t('sync.offline'));
@@ -1118,6 +1168,34 @@ function mountGoogleButton() {
   window.google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: Math.min(320, el.clientWidth || 320), locale: lang() });
 }
 
+function validarDatos(d) {
+  if (!d.nombres || !d.apellidos || !d.nacimiento || !d.celular || !d.peso_kg || !d.talla_cm) return 'datos.required';
+  const b = new Date(d.nacimiento + 'T00:00:00'), now = new Date();
+  if (isNaN(b)) return 'datos.required';
+  let age = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) age--;
+  if (age < 14 || age > 110) return 'datos.age';
+  if (!(d.peso_kg >= 25 && d.peso_kg <= 400)) return 'datos.pesoErr';
+  if (!(d.talla_cm >= 100 && d.talla_cm <= 250)) return 'datos.tallaErr';
+  if (d.celular.replace(/\D/g, '').length < 7) return 'datos.celularErr';
+  return null;
+}
+
+// Pregunta al servidor el estado de la cuenta (aprobación) y si ya dejó sus datos.
+async function refreshAccount() {
+  if (!accountMode(S) || !S.account.consent) return;
+  try {
+    const r = await api(S, 'entrar');
+    S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos ?? S.account.datos;
+    applyServerProfile(r.perfil);
+    persist(); render();
+    if (S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) doSync(false);
+  } catch (e) {
+    if (e.auth === false) return;
+    toast(navigator.onLine ? t('login.failed') : t('login.offline'));
+  }
+}
+
 async function onCredential(resp) {
   try {
     const p = decodeJwt(resp.credential);
@@ -1128,12 +1206,13 @@ async function onCredential(resp) {
     S.lastEmail = email; ui.loginMsg = '';
     for (const w of tokenWaiters.splice(0)) w(true);
     persist();
-    if (S.account.consent && S.account.exp) { render(); doSync(false); return; }
+    if (S.account.consent && S.account.exp) { render(); await refreshAccount(); return; }
     const r = await api({ ...S, account: { ...S.account, consent: true } }, 'entrar');
     S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
+    S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos;
     applyServerProfile(r.perfil);
     persist(); render(); window.scrollTo(0, 0);
-    if (S.account.consent) afterConsent();
+    if (S.account.consent && S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) afterConsent();
   } catch (e) {
     ui.loginMsg = navigator.onLine ? t('login.failed') : t('login.offline'); render();
   }
@@ -1144,7 +1223,7 @@ function applyServerProfile(p) {
   S.settings.mode = p.modo; S.settings.sex = p.sexo ?? S.settings.sex; S.settings.unit = p.unidad ?? S.settings.unit;
   if (p.idioma) { S.settings.lang = p.idioma; setLang(p.idioma); }
   if (p.semana) S.settings.week = p.semana;
-  if (p.avisos) S.settings.remind = { ...remindCfg(), app: Boolean(p.avisos.app), time: p.avisos.hora ?? remindCfg().time };
+  if (p.avisos) S.settings.remind = { ...remindCfg(), app: Boolean(p.avisos.app), cal: Boolean(p.avisos.cal), time: p.avisos.hora ?? remindCfg().time };
   S.settings.onboarded = true; S.settings.weekSet = true; ui.onbStep = 4;
 }
 
@@ -1242,6 +1321,7 @@ setInterval(maybeNotify, 60000);
 // ---------- Eventos ----------
 // Respuesta al tocar (no al soltar): vibración suave inmediata en cualquier botón.
 $app.addEventListener('pointerdown', (e) => { if (e.target.closest('button,[data-a]')) buzz(8); }, { passive: true });
+$app.addEventListener('change', (e) => { const el = e.target.closest?.('select[data-a]'); if (el && A[el.dataset.a]) A[el.dataset.a](el); });
 $app.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');
   if (!el || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'time'))) return;
@@ -1308,3 +1388,4 @@ bgSync();
 loadBody().then((ok) => ok && render());
 touchAgenda();
 initGoogle();
+if (accountMode(S) && S.account.consent && S.account.datosOk === undefined && navigator.onLine) refreshAccount();

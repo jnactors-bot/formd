@@ -67,6 +67,12 @@ const SLOTS = {
 const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'outdoor_run', 'incline_walk'];
 const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'jump_rope'];
 
+// Cuatro modos; cada uno se apoya en la rotación y el catálogo de uno base.
+export const MODES = ['muscle', 'strength', 'hybrid', 'fatloss'];
+export const MODE_BASE = { muscle: 'muscle', strength: 'muscle', hybrid: 'hybrid', fatloss: 'hybrid' };
+export const baseMode = (mode) => MODE_BASE[mode] ?? 'muscle';
+// Fuerza: pocas repeticiones, descansos largos. Bajar grasa: más repeticiones y descansos cortos, con cardio.
+const MODE_TUNE = { strength: { repMin: 3, repMax: 6, rest: [180, 120], maxSets: 5, compoundOnly: true, rir: 2 }, fatloss: { repMin: 10, repMax: 15, rest: [45, 40], maxSets: 3, rir: 2 } };
 export const MUSCLE_ROTATION = ['push', 'pull', 'legs'];
 export const HYBRID_ROTATION = ['upper', 'cardio_easy', 'lower', 'cardio_interval'];
 const HARD = new Set(['lower', 'cardio_interval', 'legs']);
@@ -134,7 +140,7 @@ function pickExercise(slot, available, used, mode) {
     const ex = BY_CODE.get(code);
     if (!ex || used.has(code)) continue;
     if (!available.has(ex.equipment)) continue;
-    if (!ex.modes.includes(mode)) continue;
+    if (!ex.modes.includes(baseMode(mode))) continue;
     return ex;
   }
   return null;
@@ -154,7 +160,7 @@ export function cooldownMinutes(minutes) {
 
 // ---------- Elección de sesión del día ----------
 export function nextSplit(mode, history) {
-  const order = mode === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION;
+  const order = baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION;
   const last = [...history].filter((s) => s.modo === mode && s.split).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
   if (!last) return order[0];
   const i = order.indexOf(last.split);
@@ -167,7 +173,7 @@ export function hoursSince(fecha, now) {
 
 export function hybridWarnings(history, split, now = Date.now()) {
   const warnings = [];
-  const week = history.filter((s) => s.modo === 'hybrid' && hoursSince(s.fecha, now) <= 24 * 7);
+  const week = history.filter((s) => baseMode(s.modo) === 'hybrid' && hoursSince(s.fecha, now) <= 24 * 7);
   const last = [...history].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
   if (last && HARD.has(last.split) && HARD.has(split) && hoursSince(last.fecha, now) < 24) {
     warnings.push({ key: 'recovery' });
@@ -215,7 +221,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
   const budget = Math.max(60, (minutes - warmup - cooldown) * 60);
   const blocks = [];
   const why = new Set(['proximity']);
-  const warnings = mode === 'hybrid' ? hybridWarnings(history, chosen, now) : [];
+  const warnings = baseMode(mode) === 'hybrid' ? hybridWarnings(history, chosen, now) : [];
 
   blocks.push({ type: 'warmup', minutes: warmup, seconds: warmup * 60 });
 
@@ -234,7 +240,8 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
       why.add(interval ? 'recovery' : 'interference');
     }
   } else {
-    const slots = SLOTS[chosen] ?? SLOTS.push;
+    const tune = MODE_TUNE[mode];
+    const slots = (SLOTS[chosen] ?? SLOTS.push).filter((sl) => !tune?.compoundOnly || sl.role === 'compound');
     const used = new Set();
     let spent = 0;
     const candidates = [];
@@ -247,6 +254,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
     }
     // Primero se intenta con descansos completos; si no cabe, se acortan antes de quitar series.
     const tight = [
+      ...(tune ? [{ compound: tune.rest[0], accessory: tune.rest[1], maxSets: tune.maxSets }] : []),
       { compound: 120, accessory: 75, maxSets: 4 },
       { compound: 90, accessory: 60, maxSets: 4 },
       { compound: 75, accessory: 45, maxSets: 3 },
@@ -259,7 +267,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
       for (const { slot, ex } of candidates) {
         const compound = slot.role === 'compound';
         const rest = compound ? t.compound : t.accessory;
-        const sets = Math.min(ex.sets, t.maxSets, compound ? 4 : 3);
+        const sets = Math.min(tune?.compoundOnly ? 5 : ex.sets, t.maxSets, tune?.compoundOnly ? 5 : compound ? 4 : 3);
         const sec = exerciseSeconds(sets, rest, 'strength');
         if (spent + sec > budget) {
           // intenta con 2 series antes de saltarlo
@@ -274,10 +282,10 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
         spent += sec;
       }
       if (trial.length >= Math.min(candidates.length, minutes <= 15 ? 2 : minutes <= 30 ? 3 : 4)) {
-        blocks.push(...toBlocks(trial));
+        blocks.push(...toBlocks(trial, tune));
         break;
       }
-      if (t === tight[tight.length - 1] && trial.length) blocks.push(...toBlocks(trial));
+      if (t === tight[tight.length - 1] && trial.length) blocks.push(...toBlocks(trial, tune));
     }
     if (blocks.length === 1 && candidates.length) {
       const { ex, slot } = candidates[0];
@@ -303,14 +311,14 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
   return { mode, split: chosen, minutes, plannedSeconds, blocks, why: [...why], warnings, soft };
 }
 
-function toBlocks(trial) {
+function toBlocks(trial, tune) {
   return trial.map(({ ex, slot, sets, rest, sec }, i) => ({
     type: 'exercise',
     code: ex.code,
     kind: ex.kind,
     sets,
-    repMin: ex.repMin,
-    repMax: ex.repMax,
+    repMin: tune ? tune.repMin : ex.repMin,
+    repMax: tune ? tune.repMax : ex.repMax,
     restS: rest,
     rir: slot.role === 'compound' ? 2 : 1,
     durationS: ex.durationS,
@@ -504,7 +512,7 @@ const sessionMs = (s) => new Date(s.fecha).getTime();
 
 export const DEFAULT_WEEK = { days: [0, 1, 2, 3, 4], min: 3, max: 4 };
 export const REST_HOURS = 48;
-const WEEK_TARGET = { muscle: 6, hybrid: 4 };
+const WEEK_TARGET = { muscle: 6, strength: 4, hybrid: 4, fatloss: 5 };
 
 const regionsCache = new Map();
 /** Zonas principales (peso >= 0,7) de un tipo de sesión con el equipo disponible. */
@@ -571,7 +579,7 @@ export function readiness(split, mode, history, now, available) {
   return { score: rested / regs.length, tired };
 }
 
-export function rotationFor(mode) { return mode === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION; }
+export function rotationFor(mode) { return baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION; }
 
 /** Ordena los tipos de sesión de mejor a peor opción para entrenar ahora. */
 export function rankSplits({ mode, history, now = Date.now(), available }) {

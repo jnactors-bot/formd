@@ -310,3 +310,13 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 @keyframes splashLine { to { transform: scaleX(1); opacity: 1; } }
 @keyframes splashGlow { to { opacity: 1; scale: 1; } }
 @media (prefers-reduced-motion: reduce) { .splash::before, .splash-word::after { animation: none; } .splash-word i::before { animation-duration: .01s; animation-delay: 0s; } .splash-line { animation-duration: .01s; animation-delay: 0s; } }
+
+.selmode { background: #000; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; font: inherit; max-width: 52vw; }
+
+/* Registro de datos (sin scroll en 375x667) */
+.datos { gap: clamp(8px, 1.6vh, 14px); }
+.datos .hero { font-size: clamp(26px, 4.4vh, 34px); margin: 0; }
+.fld { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.datos input[type=text], .datos input[type=number], .datos input[type=tel], .datos input[type=date] { width: 100%; min-height: 46px; padding: 8px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: 16px var(--body); color-scheme: dark; }
+.datos .link { min-height: 36px; padding: 4px; }
+.datos .cta { height: 52px; }
