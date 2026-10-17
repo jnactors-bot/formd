@@ -350,3 +350,8 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .warm-dots { display: flex; justify-content: center; gap: 8px; }
 .warm-dots i { width: 7px; height: 7px; border-radius: 50%; background: #2a2a2a; }
 .warm-dots i.on { background: var(--mut); } .warm-dots i.cur { background: var(--ac); }
+/* El campo de fecha no debe ensancharse más que la pantalla (Chrome/Android le da un ancho mínimo propio) */
+.datos input[type=date] { box-sizing: border-box; display: block; width: 100%; max-width: 100%; min-width: 0; -webkit-appearance: none; appearance: none; text-align: left; }
+.datos input[type=date]::-webkit-date-and-time-value { text-align: left; min-width: 0; }
+.datos .fld, .datos .row { min-width: 0; max-width: 100%; }
+.datos { overflow-x: hidden; }
