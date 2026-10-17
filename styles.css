@@ -358,3 +358,10 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 
 .resume-row { align-items: stretch; }
 .resume-row .icon-btn { flex: none; align-self: center; }
+
+/* Tarjeta «Continuar sesión» con el botón de descartar dentro */
+.resume-card { display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; }
+.resume-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 14px 4px 14px 16px; }
+.discard { flex: none; display: flex; align-items: center; gap: 6px; background: #170707; border: 1px solid #5a1f1f; color: #ff7a7a; border-radius: 999px; padding: 8px 12px; font: 600 13px var(--body); }
+.discard svg { width: 16px; height: 16px; }
+.discard:active { opacity: .6; }
