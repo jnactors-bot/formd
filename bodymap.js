@@ -10,11 +10,13 @@ let gradsDone = false;
 function ensureGrads() {
   if (gradsDone) return '';
   gradsDone = true;
-  const rg = (id, a, b, c) => `<radialGradient id="${id}" cx=".38" cy=".3" r=".85"><stop offset="0" stop-color="${a}"/><stop offset=".55" stop-color="${b}"/><stop offset="1" stop-color="${c}"/></radialGradient>`;
-  return rg('bgm', '#f1eee8', '#cfcac1', '#8f8a80') + rg('bgt', '#f7f5f0', '#dedad2', '#aaa59b') + rg('bgf', '#c9c4ba', '#a9a49a', '#767168')
-    + rg('bgs', '#d9d4ca', '#bbb5aa', '#8a857b')
-    + '<radialGradient id="bga" cx=".38" cy=".28" r=".9"><stop offset="0" stop-color="#d8ff6a"/><stop offset=".4" stop-color="#b6f020"/><stop offset="1" stop-color="#4f8a00"/></radialGradient>'
-    + '<filter id="bgblur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="16"/></filter>';
+  // Sombreado cilíndrico por pieza (borde oscuro, luz al centro-izquierda): redondea cada músculo sin filtros pesados.
+  const cyl = (id, s) => `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2=".25">${s.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('')}</linearGradient>`;
+  return cyl('bgm', [[0, '#b3aea3'], [.22, '#e2ded6'], [.45, '#fbfaf7'], [.7, '#dcd8ce'], [1, '#9a958a']])
+    + cyl('bgt', [[0, '#cbc7bd'], [.3, '#f3f1ec'], [.55, '#fdfcf9'], [1, '#b2ada2']])
+    + cyl('bgf', [[0, '#a09b90'], [.35, '#d7d3c9'], [.6, '#e6e2da'], [1, '#7d786d']])
+    + cyl('bgs', [[0, '#a29d92'], [.3, '#e3dfd6'], [.5, '#f4f1eb'], [1, '#8d887d']])
+    + '<filter id="bgblur" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3"/></filter>';
 }
 
 export function loadBody() {
@@ -59,7 +61,7 @@ export function viewOfRegion(code) {
 }
 
 // Intensidad real: lo poco trabajado casi no se ve; lo muy trabajado brilla. Evita que parezca que todo se trabajó.
-const opacityOf = (v) => (v >= 0.06 ? (0.22 + 0.78 * Math.min(1, v)).toFixed(2) : '0');
+const opacityOf = (v) => (v >= 0.06 ? (0.2 + 0.62 * Math.min(1, v)).toFixed(2) : '0');
 // Un músculo real puede abarcar varias regiones (p. ej. el pectoral): si cualquiera se trabaja, se pinta el músculo COMPLETO
 // (capa base al 60 % de la intensidad máxima) y encima la región concreta, con borde suave.
 const GROUPS = [

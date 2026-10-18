@@ -450,3 +450,16 @@ main.prog { overflow: hidden; }
 /* Historial: resumen compacto por sesión */
 .exsum { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .exsum li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== Figura v3 (atlética): base clara con relieve, músculo trabajado con transparencia y fibras visibles encima ===== */
+.body { isolation: isolate; }
+.body .k0 { fill: url(#bgm); stroke: rgba(26,22,18,.9); stroke-width: .8px; }
+.body .k1 { fill: url(#bgt); stroke: rgba(34,30,26,.7); stroke-width: .5px; }
+.body .k2 { fill: url(#bgf); stroke: rgba(34,30,26,.7); stroke-width: .5px; }
+.body .k3 { fill: url(#bgs); stroke: rgba(34,30,26,.75); stroke-width: .5px; }
+.body .k5 { display: none; }
+.body .ln .k4 { fill: none; stroke: rgba(14,12,10,.85); stroke-width: .9px; }
+.body .hi { mix-blend-mode: multiply; }
+.body .z use, .body .zg use { fill: var(--accent, #c6ff3d); stroke: rgba(10,30,0,.55); stroke-width: .5px; }
+.body.glow .hi { filter: none; }
+.body .z.now use { stroke: rgba(10,30,0,.9); stroke-width: 1px; }
