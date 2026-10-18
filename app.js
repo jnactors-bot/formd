@@ -6,6 +6,7 @@ import {
   BY_CODE, EQUIPMENT_PRESETS, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
+  REST_OPTIONS, bumpRestAdj, effectiveRest, plannedSecondsWith, PERIOD_DAYS, MUSCLE_GROUPS, mondayOf, periodBuckets, regionSetsByDay, sessionExerciseCounts, setsByMuscleGroup, topExercises,
   DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
 } from './engine.js';
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
@@ -19,12 +20,13 @@ const LB = 2.2046226218;
 let S = load();
 setLang(S.settings.lang);
 
-const TAB_ORDER = ['home', 'history', 'profile'];
+const TAB_ORDER = ['home', 'progress', 'history', 'profile'];
 const ui = {
   screen: null, tab: 'home', minutes: 45, plan: null, view: 'front', histTab: 'date', histEx: null,
   modal: null, toast: '', hintDismissed: -1, summary: null, syncing: false, dir: 'fwd',
   onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0, splitOverride: null, calMonth: null, calSel: null,
   adminPending: null, admin: null,
+  progTab: 'week', progDay: null, progRange: 7, progMetric: 'duration', progPeriod: '7d', progAnim: true, progFill: null,
 };
 
 const $app = document.getElementById('app');
@@ -40,6 +42,7 @@ const unit = () => S.settings.unit;
 const toDisp = (kg) => Math.round((unit() === 'kg' ? kg : kg * LB) * 10) / 10;
 const toKg = (v) => (unit() === 'kg' ? v : v / LB);
 const fmtW = (kg) => `${toDisp(kg)} ${unit()}`;
+const restFmt = (sec) => `${Math.floor(sec / 60)}:${pad(Math.round(sec) % 60)}`;
 const mmss = (sec) => { sec = Math.max(0, Math.round(sec)); return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
 const pad = (n) => String(n).padStart(2, '0');
 const localISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -64,6 +67,7 @@ const ICON = {
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+  progress: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   history: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   profile: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>',
@@ -276,7 +280,7 @@ function viewWeek() {
 
 function nav() {
   const item = (id, key) => `<button class="navb ${ui.tab === id ? 'on' : ''}" data-a="tab" data-v="${id}" aria-current="${ui.tab === id}">${ICON[id]}<span>${t(key)}</span></button>`;
-  return `<nav class="nav">${item('home', 'nav.today')}${item('history', 'nav.history')}${item('profile', 'nav.profile')}</nav>`;
+  return `<nav class="nav">${item('home', 'nav.today')}${item('progress', 'nav.progress')}${item('history', 'nav.history')}${item('profile', 'nav.profile')}</nav>`;
 }
 
 function syncBadge() {
@@ -427,7 +431,7 @@ function viewSession() {
   const { totalSets, done } = totals(a);
   const exBlocks = a.plan.blocks.filter((x) => x.type === 'exercise');
   const exNo = Math.max(1, a.plan.blocks.slice(0, a.idx + 1).filter((x) => x.type === 'exercise').length);
-  const hint = adaptiveHint({ plan: a.plan, completedSets: done, totalSets, elapsedS: elapsedS(a) });
+  const hint = adaptiveHint({ plan: { ...a.plan, plannedSeconds: plannedSecondsWith(a.plan, S.settings, a.restMul || 1) }, completedSets: done, totalSets, elapsedS: elapsedS(a) });
   const head = `<div class="row between">${backBtn()}<span class="mut sm num-s">${b.type === 'exercise' ? t('session.exShort', { n: exNo, total: exBlocks.length }) : ''}</span>
       <span class="mut sm num-s" data-tick="elapsed">${mmss(elapsedS(a))}</span></div>
     <div class="bar"><i style="width:${Math.min(100, Math.round((a.idx / a.plan.blocks.length) * 100))}%"></i></div>`;
@@ -498,13 +502,19 @@ function viewRest(a) {
   const C = 2 * Math.PI * 54;
   const b = a.plan.blocks[a.idx];
   const ex = BY_CODE.get(b.code);
-  return `<div class="col grow center-col">
+  const rcode = a.restCode ?? b.code;
+  const adj = S.settings.restAdj?.[rcode] ?? 0;
+  const rblk = a.plan.blocks.find((x) => x.type === 'exercise' && x.code === rcode);
+  const exTime = rblk ? effectiveRest(rblk, S.settings, a.restMul || 1, rcode) : total;
+  return `<div class="col grow center-col rest">
     <div class="ring-wrap"><svg class="ring" viewBox="0 0 120 120" aria-hidden="true"><circle class="ring-bg" r="54" cx="60" cy="60"/>
       <circle class="ring-fg" id="ring" r="54" cx="60" cy="60" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - left / total)).toFixed(1)}"/></svg>
       <div class="ring-num" data-tick="rest">${mmss(left)}</div></div>
     <div class="mut">${esc(exName(ex))}</div>
     ${a.sets.length ? setChips(a, a.sets[a.sets.length - 1].ejercicio_code) : ''}
-    <div class="row gap"><button class="seg" data-a="plus15">${t('session.plus15')}</button><button class="seg" data-a="skipRest">${t('session.restSkip')}</button></div>
+    <div class="row gap rchips" role="group" aria-label="${t('session.restTitle')}">${[15, 30, 60, -15].map((d) => `<button class="rchip" data-a="restAdj" data-v="${d}">${d > 0 ? '+' : '−'}${Math.abs(d)}</button>`).join('')}</div>
+    <button class="link" data-a="skipRest">${t('session.restSkip')}</button>
+    ${adj ? `<div class="mut xs restnote">${t('rest.exTime', { t: restFmt(exTime) })} · <button class="link tiny" data-a="restReset">${t('rest.reset')}</button></div>` : ''}
     <div class="grow"></div></div>`;
 }
 
@@ -607,8 +617,15 @@ function sessionCard(s) {
     const body = ex && ex.kind !== 'strength' ? `${mmss(x.duracion_s || 0)}${x.distancia_m ? ' · ' + (x.distancia_m / 1000).toFixed(1) + ' km' : ''}` : `${fmtW(x.peso_kg || 0)} × ${x.reps}`;
     return `<li><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''}</span></li>`;
   }).join('');
+  const cnt = sessionExerciseCounts(s.series ?? []);
+  const line = (c) => {
+    const ex = BY_CODE.get(c.code);
+    const name = esc(ex ? exName(ex) : c.name);
+    return ex && ex.kind === 'cardio' ? name : c.sets === 1 ? t('history.exLine1', { name }) : t('history.exLine', { n: c.sets, name });
+  };
+  const sum = cnt.length ? `<ul class="exsum">${cnt.slice(0, 3).map((c) => `<li>${line(c)}</li>`).join('')}${cnt.length > 3 ? `<li class="mut">${t('history.more', { n: cnt.length - 3 })}</li>` : ''}</ul>` : '';
   return `<details class="card sess"><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
-    <div class="mut xs">${esc(String(s.fecha).slice(5, 10))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆' + s.prs : ''}</div></div>
+    <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + s.prs + ' PR' : ''}</div>${sum}</div>
     <button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></summary>
     <ul class="list">${det}</ul></details>`;
 }
@@ -645,6 +662,105 @@ function viewHistory() {
     ${hist.length ? `<div class="row gap histfoot"><button class="link" data-a="exportCsv">${t('history.export')}</button><button class="link bad" data-a="clearHistory">${t('history.clear')}</button></div>` : ''}</main>${nav()}`;
 }
 
+// ---------- Progreso ----------
+const PROG_TABS = [['week', 'progress.tWeek'], ['chart', 'progress.tChart'], ['muscle', 'progress.tMuscle'], ['ex', 'progress.tEx']];
+const dayKey = (x) => String(x.fecha).slice(0, 10);
+
+function progWeek() {
+  const today = todayStr();
+  const mon = mondayOf(today);
+  const trained = new Set(S.history.map(dayKey));
+  const strip = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const d = addDays(mon, i);
+    return `<button class="pd${trained.has(d) ? ' on' : ''}${d === today ? ' td' : ''}${d === ui.progDay ? ' sel' : ''}${d > today ? ' fut' : ''}" data-a="progDay" data-v="${d}" aria-pressed="${d === ui.progDay}" aria-label="${esc(fmtDate(d, { weekday: 'long', day: 'numeric', month: 'long' }))}"><i>${dayLetter(i)}</i><b>${Number(d.slice(8))}</b></button>`;
+  }).join('');
+  let sets, target, caption;
+  if (ui.progDay) {
+    sets = regionSetsByDay(S.history, ui.progDay); target = 3.5;
+    const count = S.history.filter((x) => dayKey(x) === ui.progDay).reduce((n, x) => n + (x.series ?? []).length, 0);
+    const lbl = fmtDate(ui.progDay, { weekday: 'long', day: 'numeric', month: 'short' });
+    caption = count ? lbl + ' · ' + t('progress.setsN', { n: count }) : lbl + ' · ' + t('progress.restDay');
+  } else {
+    sets = regionSetsLastDays(S.history, ui.progRange); target = ui.progRange === 7 ? 12 : 40;
+    caption = t('progress.tapDay');
+  }
+  ui.progFill = Object.fromEntries(Object.entries(sets).map(([r, v]) => [r, Math.min(1, v / target)]));
+  const chips = [7, 30].map((n) => `<button class="seg sm2${!ui.progDay && ui.progRange === n ? ' on' : ''}" data-a="progRange" data-v="${n}">${t('progress.r' + n)}</button>`).join('');
+  return `<div class="pstrip" role="group">${strip}</div>
+    <div class="row gap center bodies pbodies">${bodySVG('front', {}, bodyOpts({ label: t('session.front') }))}${bodySVG('back', {}, bodyOpts({ label: t('session.back') }))}</div>
+    <div class="row between gap pfoot"><span class="mut sm pcap">${esc(caption)}</span><div class="row gap">${chips}</div></div>`;
+}
+
+function barChartSVG(b, metric, anim) {
+  const val = (x) => (metric === 'duration' ? x.duration : metric === 'volume' ? toDisp(x.volume) : x.reps);
+  const vals = b.map(val);
+  const max = Math.max(1, ...vals);
+  const W = 320, H = 190, padX = 6, top = 22, bot = 22, n = b.length;
+  const slot = (W - padX * 2) / n, bw = Math.min(34, slot * 0.62), ch = H - top - bot;
+  const fmtV = (v) => (v >= 10000 ? Math.round(v / 1000) + 'k' : v >= 1000 ? (Math.round(v / 100) / 10) + 'k' : String(Math.round(v * 10) / 10));
+  const bars = b.map((x, i) => {
+    const v = vals[i];
+    const h = v > 0 ? Math.max(3, (v / max) * ch) : 0;
+    const cx = padX + slot * i + slot / 2;
+    const last = i === n - 1;
+    const label = ui.progPeriod === '7d' ? dayLetter(dayIdx(dateMs(x.key))) : (n === 4 || i % 3 === (n - 1) % 3 ? Number(x.from.slice(8)) + '/' + Number(x.from.slice(5, 7)) : '');
+    const rect = h
+      ? `<rect class="pbar${anim ? ' anim' : ''}${last ? ' cur' : ''}" style="--i:${i}" x="${(cx - bw / 2).toFixed(1)}" y="${(top + ch - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4"/>`
+      : `<rect class="pzero" x="${(cx - bw / 2).toFixed(1)}" y="${top + ch - 2}" width="${bw.toFixed(1)}" height="2" rx="1"/>`;
+    const num = v > 0 && n <= 7 ? `<text class="pval" x="${cx.toFixed(1)}" y="${(top + ch - h - 5).toFixed(1)}" text-anchor="middle">${fmtV(v)}</text>` : '';
+    return `<g>${rect}${num}<text class="plab" x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${label}</text></g>`;
+  }).join('');
+  return `<svg class="pchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${t('progress.tChart')}"><line class="pbase" x1="${padX}" x2="${W - padX}" y1="${top + ch + 0.5}" y2="${top + ch + 0.5}"/>${bars}</svg>`;
+}
+
+const progSeg = (ids, cur, action, label) => ids.map((id) => `<button class="seg sm2 grow${cur === id ? ' on' : ''}" data-a="${action}" data-v="${id}" aria-pressed="${cur === id}">${label(id)}</button>`).join('');
+
+function progChart(anim) {
+  const b = periodBuckets(S.history, ui.progPeriod);
+  const m = ui.progMetric;
+  const total = b.reduce((a, x) => a + (m === 'duration' ? x.duration : m === 'volume' ? x.volume : x.reps), 0);
+  const shown = m === 'volume' ? toDisp(total) : total;
+  const suffix = m === 'duration' ? t('common.min') : m === 'volume' ? unit() : t('common.reps');
+  const sess = b.reduce((a, x) => a + x.sessions, 0);
+  const mLabel = { duration: t('progress.mDuration'), volume: t('progress.mVolume'), reps: t('progress.mReps') };
+  return `<div class="row gap">${progSeg(['duration', 'volume', 'reps'], m, 'progMetric', (id) => mLabel[id])}</div>
+    <div class="row gap">${progSeg(['7d', '4w', '3m'], ui.progPeriod, 'progPeriod', (id) => t('progress.p' + id))}</div>
+    <div class="row between pbig"><div><b class="num-s">${shown.toLocaleString(lang() === 'en' ? 'en' : 'es')}</b> <span class="mut sm">${suffix}</span></div><span class="mut sm">${t('progress.sessionsN', { n: sess })}</span></div>
+    <div class="pchartwrap">${barChartSVG(b, m, anim)}</div>`;
+}
+
+function progMuscle(anim) {
+  const sets = setsByMuscleGroup(S.history, PERIOD_DAYS[ui.progPeriod]);
+  const rows = MUSCLE_GROUPS.map((g) => [g, sets[g]]).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...rows.map((r) => r[1]));
+  return `<div class="row gap">${progSeg(['7d', '4w', '3m'], ui.progPeriod, 'progPeriod', (id) => t('progress.p' + id))}</div>
+    <div class="plist col">${rows.map(([g, v], i) => `<div class="mrow"><span>${t('progress.g.' + g)}</span><div class="track"><u${anim ? ' class="grow-x"' : ''} style="width:${Math.round((v / max) * 100)}%;--i:${i}"></u></div><b class="num-s">${Math.round(v * 10) / 10}</b></div>`).join('')}</div>`;
+}
+
+function progEx() {
+  const top = topExercises(S.history, 5);
+  if (!top.length) return `<p class="mut center">${t('progress.noEx')}</p>`;
+  const today = dateMs(todayStr());
+  return `<div class="plist col">${top.map((x) => {
+    const ex = BY_CODE.get(x.code);
+    const n = Math.max(0, Math.round((today - dateMs(x.last.slice(0, 10))) / 864e5));
+    const best = x.best ? (x.best.peso_kg > 0 ? `${fmtW(x.best.peso_kg)} × ${x.best.reps}` : `${x.best.reps} ${t('common.reps')}`) : '–';
+    const e = x.best && x.best.peso_kg > 0 ? `<div class="mut xs">e1RM ${fmtW(e1rm(x.best.peso_kg, x.best.reps))}</div>` : '';
+    return `<div class="exrow"><div class="grow"><b class="exn">${esc(exName(ex))}</b><div class="mut xs">${t('progress.sessionsN', { n: x.sessions })} · ${t('progress.last')} ${n === 0 ? t('progress.today') : t('progress.daysAgo', { n })}</div></div><div class="right"><b class="num-s">${best}</b>${e}</div></div>`;
+  }).join('')}</div>`;
+}
+
+function viewProgress() {
+  const anim = ui.progAnim; ui.progAnim = false;
+  const tabs = progSeg(PROG_TABS.map((x) => x[0]), ui.progTab, 'progTab', (id) => t(PROG_TABS.find((x) => x[0] === id)[1]));
+  let body;
+  if (!S.history.length) body = `<div class="empty"><div class="empty-ic">${ICON.progress}</div><p class="mut">${t('progress.empty')}</p></div>`;
+  else body = ui.progTab === 'chart' ? progChart(anim) : ui.progTab === 'muscle' ? progMuscle(anim) : ui.progTab === 'ex' ? progEx() : progWeek();
+  return `<main class="pad col stagger prog"><h1>${t('progress.title')}</h1>
+    <div class="row gap ptabs" role="group">${tabs}</div>
+    <div class="pan">${body}</div></main>${nav()}`;
+}
+
 // ---------- Perfil ----------
 const remindCfg = () => ({ app: false, cal: false, time: '18:00', ...(S.settings.remind ?? {}) });
 
@@ -655,6 +771,7 @@ function viewProfile() {
   return `<main class="pad col stagger compact"><h1>${t('profile.title')}</h1>
     <div class="col list">
       <div class="rowitem"><span>${t('profile.mode')}</span><div class="row gap"><select class="seg selmode" data-a="changeModeSel" aria-label="${t('profile.mode')}">${MODES.map((m) => `<option value="${m}" ${S.settings.mode === m ? 'selected' : ''}>${t('mode.' + m)}</option>`).join('')}</select></div></div>
+      <div class="rowitem"><span>${t('profile.rest')}</span><div class="row gap"><select class="seg selmode" data-a="setRestOverride" aria-label="${t('profile.rest')}"><option value="" ${S.settings.restOverride ? '' : 'selected'}>${t('profile.restPlan')}</option>${REST_OPTIONS.map((v) => `<option value="${v}" ${S.settings.restOverride === v ? 'selected' : ''}>${restFmt(v)}</option>`).join('')}</select></div></div>
       <div class="rowitem"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
       <div class="rowitem"><span>${t('profile.unit')}</span>${unitToggle()}</div>
       <div class="rowitem"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
@@ -813,7 +930,7 @@ function render() {
   const r = route();
   const views = { login: viewLogin, consent: viewConsent, datos: viewDatos, pending: viewPending, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
-  if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : viewHome();
+  if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : ui.tab === 'progress' ? viewProgress() : viewHome();
   else html = views[r]();
   const key = r + (r === 'tabs' ? ui.tab : '') + (r === 'welcome' || r === 'equip' ? '' : '');
   const changed = render.key !== key;
@@ -856,6 +973,10 @@ function postRender(r, changed) {
       ui.prevFill = null;
     }));
   }
+  if (r === 'tabs' && ui.tab === 'progress' && ui.progTab === 'week' && ui.progFill) {
+    const fill = ui.progFill;
+    requestAnimationFrame(() => requestAnimationFrame(() => $app.querySelectorAll('.pbodies svg.body').forEach((w) => applyFill(w.parentElement, fill))));
+  }
   if (r === 'summary' && changed && !reduced()) countUp();
   if (r === 'login' || (S.account && ui.expired)) setTimeout(mountGoogleButton, 0);
 }
@@ -878,7 +999,7 @@ function countUp() {
 
 function setTab(id) {
   ui.dir = TAB_ORDER.indexOf(id) < TAB_ORDER.indexOf(ui.tab) ? 'back' : 'fwd';
-  ui.tab = id; ui.screen = null; render(); window.scrollTo(0, 0);
+  ui.tab = id; ui.screen = null; if (id === 'progress') ui.progAnim = true; render(); window.scrollTo(0, 0);
 }
 
 // ---------- Acciones ----------
@@ -1107,7 +1228,30 @@ const A = {
     recordSet(a, b, { peso_kg: kg, reps, rir: rir === '' ? null : Number(rir), nota: document.getElementById('f-n')?.value || '', es_pr: pr });
     if (pr) { toast(t('session.pr')); buzz([60, 40, 60, 40, 120]); }
   },
-  plus15() { const a = S.active; a.restEnd += 15000; a.restTotal += 15; restTimer(a.restEnd - Date.now()); persist(); render(); },
+  // Sube o baja el descanso en curso (mínimo 5 s restantes) y recuerda la diferencia para ese ejercicio.
+  restAdj(el) {
+    const a = S.active;
+    if (!a?.restEnd) return;
+    let d = Number(el.dataset.v) || 0;
+    const left = Math.ceil((a.restEnd - Date.now()) / 1000);
+    if (d < 0 && left + d < 5) d = Math.min(0, 5 - left);
+    if (!d) return;
+    a.restEnd += d * 1000; a.restTotal = Math.max(5, a.restTotal + d);
+    const code = a.restCode ?? a.plan.blocks[a.idx]?.code;
+    if (code) S.settings.restAdj = bumpRestAdj(S.settings.restAdj, code, d);
+    restTimer(a.restEnd - Date.now()); persist(); render();
+  },
+  restReset() {
+    const a = S.active, code = a?.restCode;
+    const adj = S.settings.restAdj?.[code] ?? 0;
+    if (!a?.restEnd || !adj) return;
+    const left = Math.ceil((a.restEnd - Date.now()) / 1000);
+    const d = Math.max(-adj, 5 - left);
+    a.restEnd += d * 1000; a.restTotal = Math.max(5, a.restTotal + d);
+    S.settings.restAdj = bumpRestAdj(S.settings.restAdj, code, -adj);
+    restTimer(a.restEnd - Date.now()); persist(); render();
+  },
+  setRestOverride(el) { S.settings.restOverride = el.value ? Number(el.value) : null; persist(); render(); bgSync(); },
   skipRest() { S.active.restEnd = null; restTimer(0); persist(); render(); },
   timerStart() {
     const a = S.active; a.timer = { running: true, t0: Date.now(), accum: a.timer?.accum ?? 0, lastPhase: 'work' };
@@ -1148,7 +1292,7 @@ const A = {
   askYes() { const fn = ui.modal?.onYes; ui.modal = null; render(); fn?.(); },
   evidence(el) { ui.modal = { type: 'evidence', key: el.dataset.v }; render(); },
   flipView() { ui.view = ui.view === 'front' ? 'back' : 'front'; buzz(8); render(); },
-  shortenRests() { S.active.plan = shortenRests(S.active.plan); ui.hintDismissed = S.active.sets.length; persist(); render(); },
+  shortenRests() { S.active.plan = shortenRests(S.active.plan); S.active.restMul = (S.active.restMul || 1) * 0.75; ui.hintDismissed = S.active.sets.length; persist(); render(); },
   dropLast() {
     const a = S.active;
     const done = {};
@@ -1165,6 +1309,11 @@ const A = {
   finishSession() { finishSession(); },
   rate(el) { ui.rating = Number(el.dataset.v); buzz(12); render(); },
   saveSummary() { saveSummary(); },
+  progTab(el) { ui.progTab = el.dataset.v; ui.progAnim = true; buzz(8); render(); },
+  progDay(el) { ui.progDay = ui.progDay === el.dataset.v ? null : el.dataset.v; render(); },
+  progRange(el) { ui.progRange = Number(el.dataset.v); ui.progDay = null; render(); },
+  progMetric(el) { ui.progMetric = el.dataset.v; ui.progAnim = true; render(); },
+  progPeriod(el) { ui.progPeriod = el.dataset.v; ui.progAnim = true; render(); },
   histTab(el) { ui.histTab = el.dataset.v; render(); },
   histEx(el) { ui.histEx = el.value; render(); },
   delSession(el) {
@@ -1242,15 +1391,17 @@ function recordSet(a, b, extra) {
   a.sets.push({ ejercicio_code: b.code, ejercicio: ex.es, serie: a.setNo, distancia_m: 0, duracion_s: 0, ...extra });
   a.fill = addSetToFill(a.fill, a.plan, b.code);
   buzz(35);
+  const rest = effectiveRest(b, S.settings, a.restMul || 1);
+  a.restCode = b.code;
   if (a.setNo >= b.sets) {
     a.setNo = 1;
     a.idx += 1;
     const next = a.plan.blocks[a.idx];
     delete a.plan.blocks[a.idx - 1].suggestKg;
-    if (next && next.type === 'exercise') { a.restTotal = Math.max(30, b.restS); a.restEnd = Date.now() + a.restTotal * 1000; }
+    if (next && next.type === 'exercise') { a.restTotal = Math.max(30, rest); a.restEnd = Date.now() + a.restTotal * 1000; }
     else a.restEnd = null;
   } else {
-    a.setNo += 1; a.restTotal = b.restS; a.restEnd = Date.now() + b.restS * 1000;
+    a.setNo += 1; a.restTotal = rest; a.restEnd = Date.now() + rest * 1000;
   }
   if (a.restEnd) { restTimer(a.restEnd - Date.now()); askRestNotif(); } else restTimer(0);
   persist(); render();

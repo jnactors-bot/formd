@@ -12,6 +12,8 @@ export const defaults = () => ({
     lang: (navigator.language || 'es').toLowerCase().startsWith('en') ? 'en' : 'es',
     equipment: EQUIPMENT_PRESETS.gym,
     restDefault: 90,
+    restOverride: null, // null = el descanso que trae el plan; o segundos (estándar de 2 min = 120)
+    restAdj: {}, // ajuste acumulado por ejercicio (s, máx ±180)
     onboarded: false,
     weekSet: false,
     week: { days: [0, 1, 2, 3, 4], min: 3, max: 4 }, // metas semanales: días disponibles, mínimo y máximo
@@ -131,7 +133,7 @@ export async function sync(state) {
   }
   state.history.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   await api(state, 'perfil_guardar', {
-    perfil: { modo: state.settings.mode, sexo: state.settings.sex, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restDefault, equipo: state.settings.equipment, semana: state.settings.week, avisos: { app: state.settings.remind?.app, cal: state.settings.remind?.cal, hora: state.settings.remind?.time } },
+    perfil: { modo: state.settings.mode, sexo: state.settings.sex, unidad: state.settings.unit, idioma: state.settings.lang, descanso_s: state.settings.restOverride || state.settings.restDefault, equipo: state.settings.equipment, semana: state.settings.week, avisos: { app: state.settings.remind?.app, cal: state.settings.remind?.cal, hora: state.settings.remind?.time } },
   });
   state.lastSync = new Date().toISOString();
   return { sent, added };

@@ -188,7 +188,7 @@ main.stagger > :nth-child(4) { animation-delay: .17s; } main.stagger > :nth-chil
 .body .k3 { fill: #3d3029; stroke: #120e0b; stroke-width: .5px; }
 .body .k4 { fill: none; stroke: #120706; stroke-width: .6px; }
 .body .z { transition: opacity .7s var(--out); pointer-events: none; }
-.body .z use { fill: var(--accent, #c6ff3d); stroke: #000; stroke-width: .55px; }
+.body .z use, .body .zg use { fill: var(--accent, #c6ff3d); stroke: #000; stroke-width: .55px; }
 
 /* Paso de sexo */
 .sexrow { flex: 1 1 0; min-height: 0; }
@@ -375,3 +375,78 @@ input[type=time] { width: 100%; min-height: 48px; padding: 8px 14px; border-radi
 .chips::-webkit-scrollbar { display: none; }
 .chip { flex: none; background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 999px; padding: 7px 12px; font: 600 13px var(--body); white-space: nowrap; }
 .chip:active { opacity: .6; border-color: var(--ac); }
+
+/* ===== Figura premium: grises cálidos con volumen, músculo trabajado en lima con degradado y resplandor ===== */
+.body .k0 { fill: url(#bgm); stroke: rgba(40,36,30,.7); stroke-width: .5px; }
+.body .k1 { fill: url(#bgt); stroke: #0c0b0a; stroke-width: .4px; }
+.body .k2 { fill: url(#bgf); stroke: #0c0b0a; stroke-width: .4px; }
+.body .k3 { fill: url(#bgs); stroke: #0c0b0a; stroke-width: .4px; }
+.body .ln .k4 { fill: none; stroke: rgba(30,26,22,.65); stroke-width: .8px; pointer-events: none; }
+.body .z use, .body .zg use { fill: url(#bga); stroke: rgba(20,40,0,.5); stroke-width: .45px; }
+.body .z[data-on="0"], .body .zg[data-on="0"] { visibility: hidden; transition: opacity .7s var(--out), visibility 0s .7s; }
+.body.glow .hi { filter: drop-shadow(0 0 5px rgba(198,255,61,.35)); }
+.body .z.now use { stroke: var(--accent, #c6ff3d); stroke-width: 1px; }
+.body { overflow: visible; }
+/* Tamaños: sm miniatura, md tarjeta de sesión (~140 px), lg resumen (frente y espalda lado a lado) */
+.body.sz-sm { height: clamp(56px, 9vh, 90px); }
+.body-wrap .body, .body-wrap .body.sz-md { height: clamp(78px, 17vh, 148px); }
+.bodies .body.sz-md, .bodies .body.sz-lg { height: 100%; max-height: min(52vh, 420px); max-width: 49%; }
+@media (prefers-reduced-motion: reduce) { .body .z, .body .zg { transition: none; } }
+
+.body .zg { transition: opacity .7s var(--out); pointer-events: none; }
+
+/* ---------- Descanso adaptable ---------- */
+.rest { gap: clamp(8px, 1.6vh, 14px); }
+.rchips { width: 100%; gap: 8px; }
+.rchip { flex: 1; min-width: 0; height: clamp(40px, 5.8vh, 48px); border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: 700 15px var(--body); transition: transform .2s var(--spring), border-color .2s; }
+.rchip:active { transform: scale(.93); border-color: var(--ac); }
+.restnote { display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.restnote .link { min-height: 32px; }
+
+/* Perfil con la fila «Descanso»: filas más bajas en pantallas bajas para que no haya scroll */
+@media (max-height: 700px) {
+  .compact .list .rowitem { min-height: 40px; }
+  .compact .rowitem .seg { min-height: 32px; }
+}
+
+/* ---------- Progreso ---------- */
+main.prog { overflow: hidden; }
+.sm2 { min-height: 38px; padding: 0 4px; font-size: 12.5px; border-radius: 12px; }
+.ptabs { flex: none; }
+.pan { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: clamp(8px, 1.6vh, 14px); }
+.pstrip { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.pd { background: none; border: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--mut); font-size: 11px; font-weight: 700; transition: transform .2s var(--spring); }
+.pd i { font-style: normal; }
+.pd b { width: clamp(34px, 10.4vw, 44px); aspect-ratio: 1; border-radius: 50%; border: 1.5px solid #222; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: var(--ink); transition: background .35s var(--spring), border-color .35s, box-shadow .35s, transform .25s var(--spring); }
+.pd.on b { background: var(--ac); border-color: var(--ac); color: #000; }
+.pd.td i { color: var(--ac); }
+.pd.td:not(.on) b { border-color: var(--ac); }
+.pd.sel b { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.16); transform: scale(1.06); }
+.pd.fut b { color: #4a4a46; }
+.pd:active { transform: scale(.92); }
+.pfoot { flex: none; align-items: center; }
+.pcap { flex: 1; min-width: 0; font-size: 13px; line-height: 1.25; }
+.pcap::first-letter { text-transform: uppercase; }
+.pfoot .seg { padding: 0 12px; }
+.pbig b { font: 800 28px/1 var(--display); letter-spacing: -.02em; }
+.pchartwrap { flex: 1 1 0; min-height: 0; display: flex; align-items: center; }
+.pchart { width: 100%; height: 100%; max-height: 270px; overflow: visible; }
+.pbar { fill: var(--ac); opacity: .5; transform-box: fill-box; transform-origin: 50% 100%; }
+.pbar.cur { opacity: 1; }
+.pbar.anim { animation: growY .7s var(--out) both; animation-delay: calc(var(--i) * 50ms); }
+.pzero { fill: #1e1e1e; } .pbase { stroke: #1c1c1c; stroke-width: 1; }
+.pval { fill: var(--ink); font: 700 10px var(--body); } .plab { fill: var(--mut); font: 600 10px var(--body); }
+@keyframes growY { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes growX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.plist { flex: 1 1 0; min-height: 0; overflow-y: auto; gap: clamp(4px, 1vh, 9px); }
+.mrow { display: grid; grid-template-columns: minmax(0, 92px) 1fr 34px; gap: 10px; align-items: center; font-size: 14px; min-height: 28px; }
+.mrow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .mrow b { text-align: right; }
+.mrow .track { height: 7px; }
+.grow-x { transform-origin: left center; animation: growX .7s var(--out) both; animation-delay: calc(var(--i) * 40ms); }
+.exrow { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.exn { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; margin-bottom: 2px; }
+.exrow .right { flex: none; max-width: 46%; }
+
+/* Historial: resumen compacto por sesión */
+.exsum { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.exsum li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -710,3 +710,139 @@ export function nextPlannedDay(args) {
   const d = Object.keys(plan).sort()[0];
   return d ? { date: d, split: plan[d].split } : null;
 }
+
+// =====================================================================================
+// Descanso adaptable: estándar 2 min; el usuario lo sube/baja en pantalla y puede cambiar la base.
+// =====================================================================================
+export const REST_STANDARD_S = 120;
+export const REST_ADJ_MAX = 180;
+export const REST_OPTIONS = [60, 90, 120, 150, 180, 240];
+export const clampRestAdj = (v) => Math.max(-REST_ADJ_MAX, Math.min(REST_ADJ_MAX, Math.round(v)));
+
+/** Descanso efectivo (s) tras una serie: base (override de Perfil o el del plan) × recorte de sesión + ajuste del ejercicio. */
+export function effectiveRest(block, settings = {}, mul = 1, code = block.code) {
+  const ov = Number(settings.restOverride);
+  const useOv = block.kind === 'strength' && ov > 0;
+  const base = useOv ? ov * mul : (block.restS ?? 60);
+  const adj = clampRestAdj(settings.restAdj?.[code] ?? 0);
+  return Math.max(15, Math.min(900, Math.round(base + adj)));
+}
+
+/** Suma `delta` al ajuste de un ejercicio y devuelve un restAdj nuevo (0 = sin ajuste, se elimina). */
+export function bumpRestAdj(restAdj = {}, code, delta) {
+  const next = { ...restAdj };
+  const v = clampRestAdj((next[code] ?? 0) + delta);
+  if (v === 0) delete next[code]; else next[code] = v;
+  return next;
+}
+
+/** Segundos del plan con los descansos reales (para el aviso «vas atrasado/adelantado»). */
+export function plannedSecondsWith(plan, settings = {}, mul = 1) {
+  let extra = 0;
+  for (const b of plan.blocks) {
+    if (b.type !== 'exercise' || b.kind !== 'strength') continue;
+    extra += (effectiveRest(b, settings, mul) - b.restS) * Math.max(0, b.sets - 1);
+  }
+  return Math.max(0, plan.plannedSeconds + extra);
+}
+
+// =====================================================================================
+// Progreso: agregados por día, periodo, grupo muscular y ejercicio (todo puro).
+// =====================================================================================
+const dayOf = (s) => String(s.fecha).slice(0, 10);
+
+/** Series efectivas por zona de un día concreto (YYYY-MM-DD). */
+export function regionSetsByDay(history, dateStr) {
+  const out = {};
+  for (const s of history) {
+    if (dayOf(s) !== dateStr) continue;
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex || ex.kind === 'cardio') continue;
+      for (const [r, w] of Object.entries(ex.weights)) out[r] = (out[r] ?? 0) + w;
+    }
+  }
+  return out;
+}
+
+const sessionReps = (s) => (s.series ?? []).reduce((a, x) => a + (x.reps || 0), 0);
+const sessionVol = (s) => (s.volumen_kg != null ? s.volumen_kg : sessionVolumeKg(s.series ?? []));
+
+/**
+ * Barras por periodo. '7d' = 7 días; '4w' = 4 semanas (lunes a domingo); '3m' = 13 semanas.
+ * Cada barra: { key, from, to, duration (min), volume (kg), reps, sessions }.
+ */
+export function periodBuckets(history, period, now = Date.now()) {
+  const today = localDate(now);
+  const buckets = [];
+  if (period === '7d') {
+    for (let i = 6; i >= 0; i--) { const d = addDays(today, -i); buckets.push({ key: d, from: d, to: d }); }
+  } else {
+    const n = period === '3m' ? 13 : 4;
+    const mon = mondayOf(today);
+    for (let i = n - 1; i >= 0; i--) { const f = addDays(mon, -7 * i); buckets.push({ key: f, from: f, to: addDays(f, 6) }); }
+  }
+  for (const b of buckets) {
+    b.duration = 0; b.volume = 0; b.reps = 0; b.sessions = 0;
+    for (const s of history) {
+      const d = dayOf(s);
+      if (d < b.from || d > b.to) continue;
+      b.duration += Math.round((s.segundos_real || 0) / 60);
+      b.volume += sessionVol(s);
+      b.reps += sessionReps(s);
+      b.sessions++;
+    }
+  }
+  return buckets;
+}
+
+export const PERIOD_DAYS = { '7d': 7, '4w': 28, '3m': 91 };
+export const MUSCLE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'quads', 'hamstrings', 'glutes', 'calves', 'abs'];
+const GROUP_OF = Object.fromEntries(CATALOG.regions.map((r) => [r.code, r.muscle]));
+
+/** Series por grupo muscular en los últimos `days` días (principal = 1, secundario fuerte = 0,5). */
+export function setsByMuscleGroup(history, days, now = Date.now()) {
+  const from = addDays(localDate(now), -(days - 1));
+  const out = Object.fromEntries(MUSCLE_GROUPS.map((g) => [g, 0]));
+  for (const s of history) {
+    if (dayOf(s) < from) continue;
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex || ex.kind === 'cardio') continue;
+      const best = {};
+      for (const [r, w] of Object.entries(ex.weights)) { const g = GROUP_OF[r]; if (g in out) best[g] = Math.max(best[g] ?? 0, w); }
+      for (const [g, w] of Object.entries(best)) out[g] += w >= 0.7 ? 1 : w >= 0.4 ? 0.5 : 0;
+    }
+  }
+  return out;
+}
+
+/** Los `n` ejercicios de fuerza más frecuentes: sesiones, series, mejor serie (e1RM) y última fecha. */
+export function topExercises(history, n = 5) {
+  const map = new Map();
+  for (const s of history) {
+    const seen = new Set();
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex || ex.kind !== 'strength') continue;
+      const m = map.get(x.ejercicio_code) ?? { code: x.ejercicio_code, sessions: 0, sets: 0, best: null, bestE: 0, last: '' };
+      m.sets++;
+      if (!seen.has(x.ejercicio_code)) { m.sessions++; seen.add(x.ejercicio_code); }
+      if (x.reps > 0) { const e = e1rm(x.peso_kg || 0, x.reps); if (e > m.bestE) { m.bestE = e; m.best = { peso_kg: x.peso_kg || 0, reps: x.reps }; } }
+      if (String(s.fecha) > m.last) m.last = String(s.fecha);
+      map.set(x.ejercicio_code, m);
+    }
+  }
+  return [...map.values()].sort((a, b) => b.sessions - a.sessions || b.sets - a.sets || b.bestE - a.bestE).slice(0, n);
+}
+
+/** Resumen compacto de una sesión: [{ code, name, sets }] en orden de aparición. */
+export function sessionExerciseCounts(series = []) {
+  const m = new Map();
+  for (const x of series) {
+    const k = x.ejercicio_code || x.ejercicio;
+    const r = m.get(k) ?? { code: x.ejercicio_code, name: x.ejercicio, sets: 0 };
+    r.sets++; m.set(k, r);
+  }
+  return [...m.values()];
+}
