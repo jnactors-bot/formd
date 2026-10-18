@@ -18,6 +18,10 @@
    645
   ]
  },
+ "base": {
+  "front": "base_front.webp",
+  "back": "base_back.webp"
+ },
  "regions": {
   "chest_clavicular": {
    "region": "chest_clavicular",
