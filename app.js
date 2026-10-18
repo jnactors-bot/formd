@@ -503,8 +503,15 @@ function viewRest(a) {
       <circle class="ring-fg" id="ring" r="54" cx="60" cy="60" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - left / total)).toFixed(1)}"/></svg>
       <div class="ring-num" data-tick="rest">${mmss(left)}</div></div>
     <div class="mut">${esc(exName(ex))}</div>
+    ${a.sets.length ? setChips(a, a.sets[a.sets.length - 1].ejercicio_code) : ''}
     <div class="row gap"><button class="seg" data-a="plus15">${t('session.plus15')}</button><button class="seg" data-a="skipRest">${t('session.restSkip')}</button></div>
     <div class="grow"></div></div>`;
+}
+
+// Series ya hechas de un ejercicio: se tocan para corregir peso o repeticiones.
+function setChips(a, code) {
+  const chips = a.sets.map((x, i) => (x.ejercicio_code === code ? `<button class="chip" data-a="editSet" data-v="${i}" aria-label="${t('session.editSet')}">${x.serie} · ${toDisp(x.peso_kg)}${unit()} × ${x.reps}</button>` : '')).join('');
+  return chips ? `<div class="chips" role="group" aria-label="${t('session.doneSets')}">${chips}</div>` : '';
 }
 
 function stepper(id, value, step, label, suffix) {
@@ -523,6 +530,7 @@ function viewStrength(a, b) {
     <div class="row between top"><h1 class="ex">${esc(exName(ex))}</h1><div class="row"><button class="icon-btn" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}">${ICON.play}</button><button class="icon-btn" data-a="evidence" data-v="${(b.why ?? [])[0] ?? 'proximity'}" aria-label="${t('session.evidence')}">${ICON.info}</button></div></div>
     <div class="row gap"><span class="pill acc-pill">${t('session.set', { n: a.setNo, total: b.sets })}</span><span class="pill">${b.repMin}–${b.repMax} ${t('common.reps')}</span>
       ${last ? `<span class="mut xs grow right">${t('session.previous')} ${fmtW(last.peso_kg)} × ${last.reps}</span>` : ''}</div>
+    ${setChips(a, b.code)}
     ${stepper('f-w', weight, unit() === 'kg' ? 2.5 : 5, unit().toUpperCase(), unit())}
     ${stepper('f-r', reps, 1, t('session.reps').toUpperCase(), '')}
     <input id="f-n" class="note" type="text" maxlength="200" placeholder="${t('session.addNote')}" hidden>
@@ -732,6 +740,14 @@ function modalHTML() {
       <p>${esc(e[lang()])}</p><p class="mut xs">${t('evidence.noCite')}</p>`;
   } else if (m.type === 'why') {
     inner = `<h2>${t('plan.whyTitle')}</h2><div class="col">${ui.plan.why.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
+  } else if (m.type === 'editset') {
+    const x = S.active?.sets[m.i];
+    if (x) {
+      inner = `<h2>${esc(exName(BY_CODE.get(x.ejercicio_code)))}</h2><div class="mut">${t('session.setN', { n: x.serie })}</div>
+        ${stepper('e-w', toDisp(x.peso_kg), unit() === 'kg' ? 2.5 : 5, unit().toUpperCase(), unit())}
+        ${stepper('e-r', x.reps, 1, t('session.reps').toUpperCase(), '')}
+        <button class="cta" data-a="saveEditSet">${t('common.save')}</button>`;
+    }
   } else if (m.type === 'leave') {
     inner = `<h2>${t('session.leaveTitle')}</h2><p class="mut">${t('session.leaveBody')}</p>
       <div class="row gap"><button class="seg grow" data-a="closeModal">${t('session.keep')}</button><button class="seg grow bad" data-a="leaveSession">${t('session.leave')}</button></div>`;
@@ -783,7 +799,7 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = ['demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
+  const showClose = ['editset', 'demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
   const adm = m.type === 'admin';
   const still = adm && m.shown ? ' still' : '';
   if (adm) m.shown = true;
@@ -1046,6 +1062,16 @@ const A = {
     persist(); go('session');
   },
   resume() { go('session'); },
+  editSet(el) { if (S.active?.sets[Number(el.dataset.v)]) openModal({ type: 'editset', i: Number(el.dataset.v) }); },
+  saveEditSet() {
+    const a = S.active, x = a?.sets[ui.modal?.i];
+    if (!x) return closeModal();
+    const w = Number(document.getElementById('e-w')?.value || 0);
+    const reps = Number(document.getElementById('e-r')?.value || 0);
+    if (!(reps > 0)) return toast(lang() === 'en' ? 'Enter the reps' : 'Escribe las repeticiones');
+    x.peso_kg = Math.round(toKg(w) * 100) / 100; x.reps = reps; x.es_pr = false;
+    persist(); closeModal(); toast(t('session.setFixed'));
+  },
   discardSession() { ask(t('home.discardAsk'), () => { S.active = null; restTimer(0); ui.screen = null; ui.plan = null; persist(); render(); toast(t('home.discarded')); }); },
   leaveSession() { ui.modal = null; ui.screen = null; ui.plan = null; render(); window.scrollTo(0, 0); },
   nextBlock() { advanceBlock(); },
