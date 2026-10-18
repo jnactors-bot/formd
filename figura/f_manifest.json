@@ -1,0 +1,189 @@
+{
+ "version": 1,
+ "size": [
+  467,
+  700
+ ],
+ "crop": {
+  "front": [
+   100,
+   22,
+   266,
+   651
+  ],
+  "back": [
+   95,
+   22,
+   276,
+   653
+  ]
+ },
+ "base": {
+  "front": "f_base_front.webp",
+  "back": "f_base_back.webp"
+ },
+ "regions": {
+  "chest_clavicular": {
+   "region": "chest_clavicular",
+   "view": "front",
+   "layer": "f_L_chest_front.webp",
+   "weight": 1
+  },
+  "chest_sternal": {
+   "region": "chest_sternal",
+   "view": "front",
+   "layer": "f_L_chest_front.webp",
+   "weight": 1
+  },
+  "chest_costal": {
+   "region": "chest_costal",
+   "view": "front",
+   "layer": "f_L_chest_front.webp",
+   "weight": 1
+  },
+  "delt_anterior": {
+   "region": "delt_anterior",
+   "view": "front",
+   "layer": "f_L_shoulders_front.webp",
+   "weight": 1
+  },
+  "delt_lateral": {
+   "region": "delt_lateral",
+   "view": "front",
+   "layer": "f_L_shoulders_front.webp",
+   "weight": 1
+  },
+  "biceps_long": {
+   "region": "biceps_long",
+   "view": "front",
+   "layer": "f_L_biceps_front.webp",
+   "weight": 1
+  },
+  "biceps_short": {
+   "region": "biceps_short",
+   "view": "front",
+   "layer": "f_L_biceps_front.webp",
+   "weight": 1
+  },
+  "brachialis": {
+   "region": "brachialis",
+   "view": "front",
+   "layer": "f_L_biceps_front.webp",
+   "weight": 1
+  },
+  "forearms": {
+   "region": "forearms",
+   "view": "front",
+   "layer": "f_L_forearms_front.webp",
+   "weight": 1
+  },
+  "forearms:back": {
+   "region": "forearms",
+   "view": "back",
+   "layer": "f_L_forearms_back.webp",
+   "weight": 1
+  },
+  "abs_upper": {
+   "region": "abs_upper",
+   "view": "front",
+   "layer": "f_L_abs_front.webp",
+   "weight": 1
+  },
+  "abs_lower": {
+   "region": "abs_lower",
+   "view": "front",
+   "layer": "f_L_abs_front.webp",
+   "weight": 1
+  },
+  "obliques": {
+   "region": "obliques",
+   "view": "front",
+   "layer": "f_L_abs_front.webp",
+   "weight": 1
+  },
+  "quads": {
+   "region": "quads",
+   "view": "front",
+   "layer": "f_L_quads_front.webp",
+   "weight": 1
+  },
+  "adductors": {
+   "region": "adductors",
+   "view": "front",
+   "layer": "f_L_adductors_front.webp",
+   "weight": 1
+  },
+  "traps_upper": {
+   "region": "traps_upper",
+   "view": "back",
+   "layer": "f_L_traps_back.webp",
+   "weight": 1
+  },
+  "traps_mid": {
+   "region": "traps_mid",
+   "view": "back",
+   "layer": "f_L_traps_back.webp",
+   "weight": 1
+  },
+  "rhomboids": {
+   "region": "rhomboids",
+   "view": "back",
+   "layer": "f_L_traps_back.webp",
+   "weight": 1
+  },
+  "delt_posterior": {
+   "region": "delt_posterior",
+   "view": "back",
+   "layer": "f_L_delt_post_back.webp",
+   "weight": 1
+  },
+  "lats": {
+   "region": "lats",
+   "view": "back",
+   "layer": "f_L_lats_back.webp",
+   "weight": 1
+  },
+  "lower_back": {
+   "region": "lower_back",
+   "view": "back",
+   "layer": "f_L_lower_back_back.webp",
+   "weight": 1
+  },
+  "triceps_long": {
+   "region": "triceps_long",
+   "view": "back",
+   "layer": "f_L_triceps_back.webp",
+   "weight": 1
+  },
+  "triceps_lateral": {
+   "region": "triceps_lateral",
+   "view": "back",
+   "layer": "f_L_triceps_back.webp",
+   "weight": 1
+  },
+  "triceps_medial": {
+   "region": "triceps_medial",
+   "view": "back",
+   "layer": "f_L_triceps_back.webp",
+   "weight": 1
+  },
+  "glutes": {
+   "region": "glutes",
+   "view": "back",
+   "layer": "f_L_glutes_back.webp",
+   "weight": 1
+  },
+  "hamstrings": {
+   "region": "hamstrings",
+   "view": "back",
+   "layer": "f_L_hamstrings_back.webp",
+   "weight": 1
+  },
+  "calves": {
+   "region": "calves",
+   "view": "back",
+   "layer": "f_L_calves_back.webp",
+   "weight": 1
+  }
+ }
+}
