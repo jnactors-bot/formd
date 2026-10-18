@@ -1,6 +1,6 @@
 // Red primero, caché de respaldo: las actualizaciones llegan y la app abre sin conexión en el gimnasio.
-const CACHE = "formd-v25";
-const SHELL = ["./", "index.html", "styles.css", "app.js", "engine.js", "store.js", "i18n.js", "bodymap.js", "bodydata.js", "anim.js", "exmap.js", "warmup.js", "privacidad.html", "catalog.js", "config.js", "manifest.webmanifest", "icon-192.png"];
+const CACHE = "formd-v26";
+const SHELL = ["./", "index.html", "styles.css", "app.js", "engine.js", "store.js", "i18n.js", "bodymap.js", "bodydata.js", "anim.js", "exmap.js", "warmup.js", "privacidad.html", "terminos.html", "creditos.html", "catalog.js", "config.js", "manifest.webmanifest", "icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

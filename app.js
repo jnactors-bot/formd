@@ -158,31 +158,40 @@ function viewLogin() {
     <div class="grow"></div>
     <button class="link" data-a="guest">${t('login.guest')}</button>
     <p class="mut xs center">${t('login.guestNote')}</p>
+    <p class="mut xs center legalnote">${t('login.legal', { a: '<a href="terminos.html" target="_blank" rel="noopener">', b: '<a href="privacidad.html" target="_blank" rel="noopener">', z: '</a>' })}</p>
   </main>`;
 }
 
+const LEGAL_A = (h) => `<a href="${h}" target="_blank" rel="noopener">`;
+const consAll = () => ui.cons?.t && ui.cons?.p && ui.cons?.s;
 function viewConsent() {
-  return `<main class="pad col stagger">
+  const c = ui.cons ?? {};
+  const row = (k, key, href) => `<label class="cons ${c[k] ? 'on' : ''}" data-k="${k}"><input type="checkbox" data-a="consTog" data-v="${k}" ${c[k] ? 'checked' : ''}><i class="box" aria-hidden="true"></i><span>${t(key, { a: LEGAL_A(href), z: '</a>' })}</span></label>`;
+  return `<main class="pad col stagger consent">
     <div class="row between">${logo()}<button class="link tiny" data-a="declineTerms">${t('consent.decline')}</button></div>
     <h1 class="hero">${t('consent.title')}</h1>
-    <ul class="bullets"><li>${t('consent.item1')}</li><li>${t('consent.item2')}</li><li>${t('consent.item3')}</li></ul>
-    <a class="link" href="privacidad.html" target="_blank" rel="noopener">${t('consent.policy')}</a>
+    <p class="mut">${t('consent.intro')}</p>
+    <div class="col conslist">${row('t', 'consent.t', 'terminos.html')}${row('p', 'consent.p', 'privacidad.html')}${row('s', 'consent.s', 'privacidad.html#salud')}</div>
     <div class="grow"></div>
     <div class="mut xs center">${esc(S.account?.email ?? '')}</div>
-    <button class="cta" data-a="acceptTerms">${t('consent.accept')}</button>
+    <button class="cta ${consAll() ? '' : 'dim'}" aria-disabled="${!consAll()}" data-a="acceptTerms">${t('consent.accept')}</button>
   </main>`;
+}
+
+function datosFields() {
+  const d = S.account?.datos ?? {};
+  const f = (id, label, type, val, extra = '') => `<label class="fld"><span class="mut xs">${label}</span><input id="d-${id}" type="${type}" value="${esc(val ?? '')}" ${extra}></label>`;
+  return `<div class="row gap">${f('nombres', t('datos.nombres'), 'text', d.nombres, 'autocomplete="given-name"')}${f('apellidos', t('datos.apellidos'), 'text', d.apellidos, 'autocomplete="family-name"')}</div>
+    ${f('nacimiento', t('datos.nacimiento'), 'date', d.nacimiento)}
+    <div class="row gap">${f('peso', t('datos.peso'), 'number', d.peso_kg, 'inputmode="decimal" step="0.1" min="25" max="400"')}${f('talla', t('datos.talla'), 'number', d.talla_cm, 'inputmode="numeric" min="100" max="250"')}</div>
+    ${f('celular', t('datos.celular'), 'tel', d.celular, 'autocomplete="tel" inputmode="tel"')}`;
 }
 
 function viewDatos() {
-  const d = S.account?.datos ?? {};
-  const f = (id, label, type, val, extra = '') => `<label class="fld"><span class="mut xs">${label}</span><input id="d-${id}" type="${type}" value="${esc(val ?? '')}" ${extra}></label>`;
   return `<main class="pad col datos">
     <div class="row between">${logo()}<span></span></div>
     <h1 class="hero">${t('datos.title')}</h1>
-    <div class="row gap">${f('nombres', t('datos.nombres'), 'text', d.nombres, 'autocomplete="given-name"')}${f('apellidos', t('datos.apellidos'), 'text', d.apellidos, 'autocomplete="family-name"')}</div>
-    ${f('nacimiento', t('datos.nacimiento'), 'date', d.nacimiento)}
-    <div class="row gap">${f('peso', t('datos.peso'), 'number', d.peso_kg, 'inputmode="decimal" step="0.1" min="25" max="400"')}${f('talla', t('datos.talla'), 'number', d.talla_cm, 'inputmode="numeric" min="100" max="250"')}</div>
-    ${f('celular', t('datos.celular'), 'tel', d.celular, 'autocomplete="tel" inputmode="tel"')}
+    ${datosFields()}
     <div class="grow"></div>
     <button class="cta" data-a="saveDatos">${t('common.continue')}</button>
     <button class="link" data-a="declineTerms">${t('datos.signOut')}</button>
@@ -610,12 +619,22 @@ function chartSVG(points) {
   </svg><div class="row between mut xs"><span>${fmtW(lo)}</span><span>${fmtW(hi)}</span></div>`;
 }
 
+// Tras corregir una sesión guardada: recalcula volumen y récords, y la vuelve a enviar (el servidor reemplaza la anterior).
+function touchHistSession(hs) {
+  hs.volumen_kg = sessionVolumeKg(hs.series ?? []);
+  hs.prs = (hs.series ?? []).filter((x) => x.es_pr).length;
+  if (canSync(S) && !S.pending.includes(hs.id)) S.pending.push(hs.id);
+  persist(); render(); bgSync(); touchAgenda();
+}
+
 function sessionCard(s) {
-  const det = (s.series ?? []).map((x) => {
+  const det = (s.series ?? []).map((x, i) => {
     const ex = BY_CODE.get(x.ejercicio_code);
     const label = ex ? exName(ex) : x.ejercicio;
     const body = ex && ex.kind !== 'strength' ? `${mmss(x.duracion_s || 0)}${x.distancia_m ? ' · ' + (x.distancia_m / 1000).toFixed(1) + ' km' : ''}` : `${fmtW(x.peso_kg || 0)} × ${x.reps}`;
-    return `<li><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''}</span></li>`;
+    if (ex && ex.kind !== 'strength') return `<li><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''}</span></li>`;
+    // Series de fuerza: se tocan para corregir peso o repeticiones
+    return `<li><button class="setrow" data-a="editHistSet" data-s="${esc(s.id)}" data-i="${i}" aria-label="${t('history.editSet')}"><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''} <i class="pen">${ICON.edit ?? '✎'}</i></span></button></li>`;
   }).join('');
   const cnt = sessionExerciseCounts(s.series ?? []);
   const line = (c) => {
@@ -624,7 +643,7 @@ function sessionCard(s) {
     return ex && ex.kind === 'cardio' ? name : c.sets === 1 ? t('history.exLine1', { name }) : t('history.exLine', { n: c.sets, name });
   };
   const sum = cnt.length ? `<ul class="exsum">${cnt.slice(0, 3).map((c) => `<li>${line(c)}</li>`).join('')}${cnt.length > 3 ? `<li class="mut">${t('history.more', { n: cnt.length - 3 })}</li>` : ''}</ul>` : '';
-  return `<details class="card sess"><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
+  return `<details class="card sess" data-sid="${esc(s.id)}" ${ui.histOpen === s.id ? 'open' : ''}><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
     <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + s.prs + ' PR' : ''}</div>${sum}</div>
     <button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></summary>
     <ul class="list">${det}</ul></details>`;
@@ -780,10 +799,11 @@ function viewProfile() {
       ${rowSheet('openEquipSheet', t('profile.equip'))}
       ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : (centralUrl() && googleClientId() ? rowSheet('toLogin', t('account.signIn')) : '')}
       ${isAdmin() ? rowSheet('openAdmin', t('admin.row'), ui.adminPending > 0 ? `<span class="bubble">${ui.adminPending}</span>` : '') : ''}
+      ${rowSheet('openLegal', t('profile.legal'))}
       ${S.account ? '' : rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
     </div>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
-    <p class="mut xs center credit">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</p>
+    <p class="mut xs center credit"><a href="creditos.html" target="_blank" rel="noopener">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</a></p>
   </main>${nav()}`;
 }
 
@@ -847,6 +867,8 @@ function closeModal() {
 }
 function ask(text, onYes) { openModal({ type: 'ask', text, onYes }); }
 
+const claimState = () => (ui.claim ??= { tipo: 'Reclamo', nombre: [S.account?.datos?.nombres, S.account?.datos?.apellidos].filter(Boolean).join(' ') || S.account?.name || '', detalle: '', busy: false, res: null });
+
 function modalHTML() {
   const m = ui.modal;
   if (!m) return '';
@@ -857,6 +879,15 @@ function modalHTML() {
       <p>${esc(e[lang()])}</p><p class="mut xs">${t('evidence.noCite')}</p>`;
   } else if (m.type === 'why') {
     inner = `<h2>${t('plan.whyTitle')}</h2><div class="col">${ui.plan.why.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
+  } else if (m.type === 'edithist') {
+    const hs = S.history.find((x) => x.id === m.sid), hx = hs?.series?.[m.i];
+    if (hx) {
+      inner = `<h2>${esc(exName(BY_CODE.get(hx.ejercicio_code)) || hx.ejercicio)}</h2><div class="mut">${t('session.setN', { n: hx.serie ?? m.i + 1 })} · ${esc(fmtDate(String(hs.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))}</div>
+        ${stepper('e-w', toDisp(hx.peso_kg || 0), unit() === 'kg' ? 2.5 : 5, unit().toUpperCase(), unit())}
+        ${stepper('e-r', hx.reps, 1, t('session.reps').toUpperCase(), '')}
+        <button class="cta" data-a="saveHistSet">${t('common.save')}</button>
+        <button class="link bad" data-a="removeHistSet">${t('history.removeSet')}</button>`;
+    }
   } else if (m.type === 'editset') {
     const x = S.active?.sets[m.i];
     if (x) {
@@ -878,9 +909,31 @@ function modalHTML() {
       <ul class="bullets cues">${cues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`;
   } else if (m.type === 'account') {
     inner = `<h2>${t('account.title')}</h2><p class="mut">${esc(S.account?.email ?? '')}</p>
-      <button class="seg" data-a="exportAccount">${t('account.export')}</button>
-      <button class="seg" data-a="signOut">${t('account.signOut')}</button>
+      <div class="col acclist">
+        <button class="seg" data-a="openMyData">${t('account.viewData')}</button>
+        <button class="seg" data-a="openAccLog">${t('account.log')}</button>
+        <button class="seg" data-a="exportAccount">${t('account.export')}</button>
+        <button class="seg" data-a="signOut">${t('account.signOut')}</button>
+      </div>
       <button class="link bad" data-a="deleteAccount">${t('account.delete')}</button>`;
+  } else if (m.type === 'mydata') {
+    inner = `<h2>${t('account.viewData')}</h2><div class="col datos">${datosFields()}</div><button class="cta" data-a="saveDatos">${t('common.save')}</button>`;
+  } else if (m.type === 'acclog') {
+    const L = ui.acclog ?? { loading: true };
+    const mk = (v) => (v ? '✓' : '✗');
+    inner = `<h2>${t('account.log')}</h2>` + (L.loading ? `<p class="mut">${t('admin.loading')}</p>` : L.err ? `<div class="warn">${esc(L.err)}</div>` : !L.list?.length ? `<p class="mut">${t('log.empty')}</p>` : `<div class="col loglist">${L.list.map((a) => `<div class="logrow"><div class="row between"><b>${esc(String(a.fecha_hora ?? '').slice(0, 16))}</b><span class="mut xs">v${esc(a.version)}</span></div><div class="acc xs">${mk(a.terminos)} ${t('log.terms')} · ${mk(a.privacidad)} ${t('log.priv')} · ${mk(a.salud)} ${t('log.health')}</div><div class="mut xs logdev">${esc(a.dispositivo)}</div></div>`).join('')}</div>`);
+  } else if (m.type === 'legal') {
+    const lk = (h, k) => `<a class="rowitem" href="${h}" target="_blank" rel="noopener"><span>${t(k)}</span><span class="chev">${ICON.chev}</span></a>`;
+    inner = `<h2>${t('profile.legal')}</h2><div class="col list">${lk('terminos.html', 'legal.terms')}${lk('privacidad.html', 'legal.privacy')}${lk('creditos.html', 'legal.credits')}<button class="rowitem" data-a="openClaim"><span>${t('legal.claims')}</span><span class="chev">${ICON.chev}</span></button></div>`;
+  } else if (m.type === 'claim') {
+    const c = claimState();
+    if (!S.account) inner = `<h2>${t('legal.claims')}</h2><p class="mut">${t('claim.noAccount')}</p>`;
+    else if (c.res) inner = `<h2>${t('claim.done')}</h2><p>${t('claim.num', { id: esc(c.res.id) })}</p><p class="acc">${t('claim.reply', { d: esc(fmtDate(c.res.responder_antes_de, { day: 'numeric', month: 'long', year: 'numeric' })) })}</p>`;
+    else inner = `<h2>${t('legal.claims')}</h2>
+      <div class="row gap wrap" role="group">${['Reclamo', 'Queja', 'Sugerencia'].map((k) => `<button class="chip ${c.tipo === k ? 'on' : ''}" data-a="claimTipo" data-v="${k}" aria-pressed="${c.tipo === k}">${t('claim.' + k)}</button>`).join('')}</div>
+      <label class="fld"><span class="mut xs">${t('claim.nombre')}</span><input data-claim="nombre" maxlength="120" value="${esc(c.nombre)}" autocomplete="name"></label>
+      <label class="fld"><span class="mut xs">${t('claim.detalle')}</span><textarea data-claim="detalle" rows="4" maxlength="1500">${esc(c.detalle)}</textarea></label>
+      <button class="cta" data-a="sendClaim" ${c.busy ? 'disabled' : ''}>${t('claim.send')}</button>`;
   } else if (m.type === 'admin') {
     inner = adminHTML();
   } else if (m.type === 'skip') {
@@ -916,7 +969,7 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = ['editset', 'demo', 'account', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
+  const showClose = ['edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
   const adm = m.type === 'admin';
   const still = adm && m.shown ? ' still' : '';
   if (adm) m.shown = true;
@@ -1026,17 +1079,20 @@ const A = {
   introDone() { S.active.introCode = S.active.plan.blocks[S.active.idx].code; persist(); render(); },
   guest() { S.settings.guest = true; persist(); render(); },
   toLogin() { S.settings.guest = false; ui.loginMsg = ''; persist(); render(); },
-  declineTerms() { signOutLocal(true); },
+  declineTerms() { ui.cons = null; signOutLocal(true); },
   async saveDatos() {
     const v = (id) => document.getElementById('d-' + id)?.value.trim() ?? '';
     const datos = { nombres: v('nombres'), apellidos: v('apellidos'), nacimiento: v('nacimiento'), peso_kg: Number(v('peso').replace(',', '.')), talla_cm: Number(v('talla')), celular: v('celular') };
     S.account.datos = datos; // conserva lo escrito si falla
     const err = validarDatos(datos);
     if (err) return toast(t(err));
+    if (ui.modal?.type === 'mydata') ui.modal.busy = true;
     try {
       const r = await api(S, 'datos_guardar', { datos });
       S.account.datosOk = true; S.account.datos = r.datos ?? datos; S.account.estado = r.estado ?? S.account.estado;
-      persist(); render(); window.scrollTo(0, 0);
+      persist();
+      if (ui.modal?.type === 'mydata') { ui.modal = null; render(); toast(t('datos.saved')); return; }
+      render(); window.scrollTo(0, 0);
       if (!S.account.estado || S.account.estado === 'Aprobado') afterConsent();
     } catch (e) { toast(e.approval === false ? t('datos.fail') : (e.message || t('datos.fail'))); }
   },
@@ -1046,12 +1102,50 @@ const A = {
     await refreshAccount();
     if (S.account?.estado === before && route() === 'pending') toast(t('pending.same'));
   },
+  consTog(el) { ui.cons = { ...(ui.cons ?? {}), [el.dataset.v]: el.checked }; render(); },
   async acceptTerms() {
+    if (!consAll()) {
+      toast(t('consent.missing'));
+      const main = $app.querySelector('.consent');
+      main?.querySelectorAll('.cons:not(.on)').forEach((n) => n.classList.add('miss'));
+      const b = main?.querySelector('.cta');
+      if (b && !reduced()) { b.classList.add('shake'); setTimeout(() => b.classList.remove('shake'), 500); }
+      buzz(30);
+      return;
+    }
+    if (ui.consBusy) return;
+    ui.consBusy = true;
     try {
-      await api(S, 'consentir', { version: S.account.terminos ?? '2026-11' });
-      S.account.consent = true; persist(); render();
+      await api(S, 'consentir', { version: S.account.terminos ?? '2026-12', acepta: { terminos: true, privacidad: true, salud: true }, dispositivo: String(navigator.userAgent || '').slice(0, 200), idioma: lang() });
+      S.account.consent = true; ui.cons = null; persist(); render();
       await afterConsent();
     } catch (e) { toast(t('login.failed')); }
+    finally { ui.consBusy = false; }
+  },
+  openLegal() { openModal({ type: 'legal' }); },
+  openClaim() { ui.claim = null; openModal({ type: 'claim' }); },
+  claimTipo(el) { ui.claim = { ...claimState(), tipo: el.dataset.v }; render(); },
+  async sendClaim() {
+    const c = claimState();
+    const nombre = c.nombre.trim(), detalle = c.detalle.trim();
+    if (nombre.length < 2) return toast(t('claim.needName'));
+    if (detalle.length < 10) return toast(t('claim.min'));
+    c.busy = true; render();
+    try {
+      const r = await api(S, 'reclamo', { reclamo: { tipo: c.tipo, nombre, detalle } });
+      c.res = { id: r.id, responder_antes_de: r.responder_antes_de };
+    } catch (e) { toast(e.auth === false ? t('account.expired') : t('claim.fail')); }
+    c.busy = false; render();
+  },
+  openMyData() { openModal({ type: 'mydata' }); },
+  async openAccLog() {
+    ui.acclog = { loading: true };
+    openModal({ type: 'acclog' });
+    try {
+      const r = await api(S, 'mis_aceptaciones');
+      ui.acclog = { list: r.aceptaciones ?? [] };
+    } catch (e) { ui.acclog = { err: e.auth === false ? t('account.expired') : t('log.fail') }; }
+    if (ui.modal?.type === 'acclog') render();
   },
   openAccount() { openModal({ type: 'account' }); },
   keep() {},
@@ -1314,6 +1408,25 @@ const A = {
   progRange(el) { ui.progRange = Number(el.dataset.v); ui.progDay = null; render(); },
   progMetric(el) { ui.progMetric = el.dataset.v; ui.progAnim = true; render(); },
   progPeriod(el) { ui.progPeriod = el.dataset.v; ui.progAnim = true; render(); },
+  editHistSet(el) { ui.histOpen = el.dataset.s; openModal({ type: 'edithist', sid: el.dataset.s, i: Number(el.dataset.i) }); },
+  saveHistSet() {
+    const hs = S.history.find((x) => x.id === ui.modal?.sid), hx = hs?.series?.[ui.modal?.i];
+    if (!hx) return closeModal();
+    const w = Number(document.getElementById('e-w')?.value || 0);
+    const reps = Number(document.getElementById('e-r')?.value || 0);
+    if (!(reps > 0)) return toast(lang() === 'en' ? 'Enter the reps' : 'Escribe las repeticiones');
+    hx.peso_kg = Math.round(toKg(w) * 100) / 100; hx.reps = reps;
+    touchHistSession(hs); closeModal(); toast(t('history.fixed'));
+  },
+  removeHistSet() {
+    const sid = ui.modal?.sid, i = ui.modal?.i;
+    ask(t('history.removeSetAsk'), () => {
+      const hs = S.history.find((x) => x.id === sid);
+      if (!hs?.series?.[i]) return;
+      hs.series.splice(i, 1);
+      touchHistSession(hs); toast(t('history.fixed'));
+    });
+  },
   histTab(el) { ui.histTab = el.dataset.v; render(); },
   histEx(el) { ui.histEx = el.value; render(); },
   delSession(el) {
@@ -1513,6 +1626,7 @@ async function refreshAccount() {
   try {
     const r = await api(S, 'entrar');
     if (r.sesion) S.account.sess = r.sesion;
+    if (r.consentimiento === false) { S.account.consent = false; S.account.terminos = r.terminos; ui.cons = null; persist(); render(); return; } // versión nueva de los términos
     S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos ?? S.account.datos;
     S.account.admin = Boolean(r.admin);
     applyServerProfile(r.perfil);
@@ -1663,6 +1777,10 @@ $app.addEventListener('click', (e) => {
   if (!el || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'time'))) return;
   if (el.dataset.v !== undefined) ui.popKey = `${el.dataset.a}|${el.dataset.v}`;
   A[el.dataset.a]?.(el, e);
+});
+$app.addEventListener('input', (e) => {
+  const k = e.target.dataset?.claim;
+  if (k && ui.claim) ui.claim[k] = e.target.value;
 });
 $app.addEventListener('change', (e) => {
   const el = e.target.closest('[data-a]');

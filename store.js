@@ -80,7 +80,7 @@ export async function api(state, action, extra = {}) {
   const data = await res.json().catch(() => ({}));
   if (data.auth === false) throw Object.assign(new Error('auth'), { auth: false });
   if (data.aprobacion === false) throw Object.assign(new Error('approval'), { approval: false, estado: data.estado });
-  if (data.consentimiento === false) throw Object.assign(new Error('consent'), { consent: false });
+  if (data.consentimiento === false && action !== 'entrar') throw Object.assign(new Error('consent'), { consent: false });
   if (!res.ok || data.error) throw new Error(data.error || 'Error ' + res.status);
   return data;
 }
