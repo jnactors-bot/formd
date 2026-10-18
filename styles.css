@@ -463,3 +463,10 @@ main.prog { overflow: hidden; }
 .body .z use, .body .zg use { fill: var(--accent, #c6ff3d); stroke: rgba(10,30,0,.55); stroke-width: .5px; }
 .body.glow .hi { filter: none; }
 .body .z.now use { stroke: rgba(10,30,0,.9); stroke-width: 1px; }
+
+/* Figura raster (IA): capas de color con opacidad = intensidad; sin parpadeo (las imágenes se precargan en loadBody). */
+.body-r { overflow: hidden; }
+.body-r image { image-rendering: auto; }
+.body-r .rz { transition: opacity .7s var(--out); }
+.body.body-r.glow { filter: none; }
+@media (prefers-reduced-motion: reduce) { .body-r .rz { transition: none; } }

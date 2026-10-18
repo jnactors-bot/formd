@@ -19,10 +19,33 @@ function ensureGrads() {
     + '<filter id="bgblur" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3"/></filter>';
 }
 
+// Figura raster (hombre): imágenes generadas con IA en figura/ + capas de color por grupo muscular.
+// Si falta el manifiesto o alguna imagen base, se usa el SVG vectorial (respaldo; también para la figura femenina).
+let FIG = null;
+let figLoading = null;
+const figImg = (src) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(src); i.onerror = no; i.src = src; });
+function loadFigure() {
+  figLoading = figLoading ?? fetch('figura/manifest.json').then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then(async (m) => {
+      await Promise.all([figImg('figura/base_front.webp'), figImg('figura/base_back.webp')]);
+      const layers = {}; // vista -> archivo -> [regiones]
+      for (const e of Object.values(m.regions)) ((layers[e.view] ??= {})[e.layer] ??= []).push(e.region);
+      const files = [...new Set(Object.values(m.regions).map((e) => 'figura/' + e.layer))];
+      const ok = new Set((await Promise.allSettled(files.map(figImg))).filter((r) => r.status === 'fulfilled').map((r) => r.value));
+      for (const v of Object.keys(layers)) for (const f of Object.keys(layers[v])) if (!ok.has('figura/' + f)) delete layers[v][f];
+      FIG = { m, layers };
+      return true;
+    }).catch(() => false);
+  return figLoading;
+}
+export const figureReady = () => Boolean(FIG);
+
 export function loadBody() {
+  loadFigure();
   if (BODY) return Promise.resolve(true);
   loading = loading ?? import('./bodydata.js').then((m) => { BODY = m.BODY; return true; }).catch(() => false);
-  return loading;
+  // Espera también a la figura raster (si existe) para no parpadear entre una y otra.
+  return Promise.all([loading, figLoading]).then(([a]) => a);
 }
 export const bodyReady = () => Boolean(BODY);
 export const getBody = () => BODY;
@@ -92,9 +115,29 @@ const SIZES = { sm: 'sm', md: 'md', lg: 'lg' };
  * @param {{sex?: 'male'|'female', accent?: string, label?: string, now?: Set<string>, size?: 'sm'|'md'|'lg', glow?: boolean}} opts
  * size: sm (miniaturas, sin resplandor) · md (tarjeta, por defecto) · lg (resumen, frente y espalda grandes). Añade la clase sz-* para que el CSS dimensione.
  */
+const rasterOp = (regions, fill, now) => {
+  const v = Math.max(0, ...regions.map((r) => fill[r] ?? 0));
+  const op = Number(opacityOf(v));
+  return now && regions.some((r) => now.has(r)) ? Math.max(op, 0.14) : op;
+};
+function rasterSVG(view, fill, opts, label) {
+  const [x, y, w, h] = FIG.m.crop[view];
+  const size = SIZES[opts.size] ?? 'md';
+  const accent = opts.accent ?? '#C6FF3D';
+  const [W, H] = FIG.m.size;
+  let imgs = '';
+  for (const [f, regs] of Object.entries(FIG.layers[view])) {
+    const op = rasterOp(regs, fill, opts.now);
+    imgs += `<image class="rz" data-regions="${regs.join(' ')}"${opts.now && regs.some((r) => opts.now.has(r)) ? ' data-now="1"' : ''} href="figura/${f}" x="0" y="0" width="${W}" height="${H}" style="opacity:${op}"/>`;
+  }
+  return `<svg class="body body-r sz-${size}" viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="${label}" style="--accent:${accent}">
+    <image href="figura/base_${view}.webp" x="0" y="0" width="${W}" height="${H}"/>${imgs}</svg>`;
+}
+
 export function bodySVG(view, fill = {}, opts = {}) {
   const sex = opts.sex === 'female' ? 'female' : 'male';
   const label = opts.label ?? (view === 'back' ? 'Cuerpo, vista de espalda' : 'Cuerpo, vista frontal');
+  if (sex === 'male' && FIG?.layers[view]) return rasterSVG(view, fill, opts, label);
   if (!BODY) return `<svg class="body" viewBox="0 0 100 200" role="img" aria-label="${label}"></svg>`;
   ensureDefs(sex);
   const d = BODY[sex][view];
@@ -132,6 +175,11 @@ export function bodySVG(view, fill = {}, opts = {}) {
 
 /** Actualiza la intensidad de cada zona en un SVG ya dibujado (la transición CSS anima el cambio). */
 export function applyFill(root, fill) {
+  for (const el of root.querySelectorAll('.rz[data-regions]')) {
+    const regs = el.dataset.regions.split(' ');
+    const op = rasterOp(regs, fill, null);
+    el.style.opacity = el.dataset.now ? Math.max(op, 0.14) : op;
+  }
   for (const el of root.querySelectorAll('.zg[data-members]')) {
     const op = Number(groupOp(el.dataset.members.split(' '), fill));
     el.dataset.on = op > 0 ? '1' : '0';
