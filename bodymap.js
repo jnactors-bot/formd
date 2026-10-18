@@ -19,33 +19,37 @@ function ensureGrads() {
     + '<filter id="bgblur" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3"/></filter>';
 }
 
-// Figura raster (hombre): imágenes generadas con IA en figura/ + capas de color por grupo muscular.
-// Si falta el manifiesto o alguna imagen base, se usa el SVG vectorial (respaldo; también para la figura femenina).
-let FIG = null;
-let figLoading = null;
+// Figura raster (hombre y mujer): imágenes generadas con IA en figura/ + capas de color por grupo muscular.
+// Hombre: manifest.json / base_*.webp / L_*.webp · Mujer: f_manifest.json / f_base_*.webp / f_L_*.webp (mismo formato).
+// Si falta el manifiesto o alguna imagen base de ese sexo, se usa el SVG vectorial (respaldo).
+const FIGS = {};
+const figLoads = {};
 const figImg = (src) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(src); i.onerror = no; i.src = src; });
-function loadFigure() {
-  figLoading = figLoading ?? fetch('figura/manifest.json').then((r) => (r.ok ? r.json() : Promise.reject()))
+function loadFig(sex) {
+  const pre = sex === 'female' ? 'f_' : '';
+  figLoads[sex] = figLoads[sex] ?? fetch(`figura/${pre}manifest.json`).then((r) => (r.ok ? r.json() : Promise.reject()))
     .then(async (m) => {
-      await Promise.all([figImg('figura/base_front.webp'), figImg('figura/base_back.webp')]);
+      const base = (v) => `figura/${m.base?.[v] ?? `${pre}base_${v}.webp`}`;
+      await Promise.all([figImg(base('front')), figImg(base('back'))]);
       const layers = {}; // vista -> archivo -> [regiones]
       for (const e of Object.values(m.regions)) ((layers[e.view] ??= {})[e.layer] ??= []).push(e.region);
       const files = [...new Set(Object.values(m.regions).map((e) => 'figura/' + e.layer))];
       const ok = new Set((await Promise.allSettled(files.map(figImg))).filter((r) => r.status === 'fulfilled').map((r) => r.value));
       for (const v of Object.keys(layers)) for (const f of Object.keys(layers[v])) if (!ok.has('figura/' + f)) delete layers[v][f];
-      FIG = { m, layers };
+      FIGS[sex] = { m, layers, base };
       return true;
     }).catch(() => false);
-  return figLoading;
+  return figLoads[sex];
 }
-export const figureReady = () => Boolean(FIG);
+const loadFigure = () => Promise.all([loadFig('male'), loadFig('female')]);
+export const figureReady = (sex = 'male') => Boolean(FIGS[sex]);
 
 export function loadBody() {
-  loadFigure();
+  const figs = loadFigure();
   if (BODY) return Promise.resolve(true);
   loading = loading ?? import('./bodydata.js').then((m) => { BODY = m.BODY; return true; }).catch(() => false);
   // Espera también a la figura raster (si existe) para no parpadear entre una y otra.
-  return Promise.all([loading, figLoading]).then(([a]) => a);
+  return Promise.all([loading, figs]).then(([a]) => a);
 }
 export const bodyReady = () => Boolean(BODY);
 export const getBody = () => BODY;
@@ -120,24 +124,24 @@ const rasterOp = (regions, fill, now) => {
   const op = Number(opacityOf(v));
   return now && regions.some((r) => now.has(r)) ? Math.max(op, 0.14) : op;
 };
-function rasterSVG(view, fill, opts, label) {
-  const [x, y, w, h] = FIG.m.crop[view];
+function rasterSVG(F, view, fill, opts, label) {
+  const [x, y, w, h] = F.m.crop[view];
   const size = SIZES[opts.size] ?? 'md';
   const accent = opts.accent ?? '#C6FF3D';
-  const [W, H] = FIG.m.size;
+  const [W, H] = F.m.size;
   let imgs = '';
-  for (const [f, regs] of Object.entries(FIG.layers[view])) {
+  for (const [f, regs] of Object.entries(F.layers[view])) {
     const op = rasterOp(regs, fill, opts.now);
     imgs += `<image class="rz" data-regions="${regs.join(' ')}"${opts.now && regs.some((r) => opts.now.has(r)) ? ' data-now="1"' : ''} href="figura/${f}" x="0" y="0" width="${W}" height="${H}" style="opacity:${op}"/>`;
   }
   return `<svg class="body body-r sz-${size}" viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="${label}" style="--accent:${accent}">
-    <image href="figura/base_${view}.webp" x="0" y="0" width="${W}" height="${H}"/>${imgs}</svg>`;
+    <image href="${F.base(view)}" x="0" y="0" width="${W}" height="${H}"/>${imgs}</svg>`;
 }
 
 export function bodySVG(view, fill = {}, opts = {}) {
   const sex = opts.sex === 'female' ? 'female' : 'male';
   const label = opts.label ?? (view === 'back' ? 'Cuerpo, vista de espalda' : 'Cuerpo, vista frontal');
-  if (sex === 'male' && FIG?.layers[view]) return rasterSVG(view, fill, opts, label);
+  if (FIGS[sex]?.layers[view]) return rasterSVG(FIGS[sex], view, fill, opts, label);
   if (!BODY) return `<svg class="body" viewBox="0 0 100 200" role="img" aria-label="${label}"></svg>`;
   ensureDefs(sex);
   const d = BODY[sex][view];
