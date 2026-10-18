@@ -14,10 +14,11 @@ import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
 import { cooldownFor, warmupFor, warmupRemote } from './warmup.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
-import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, save, scriptUrl, sync } from './store.js';
+import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
 
 const LB = 2.2046226218;
 let S = load();
+S.settings.guest = false; // el modo invitado ya no existe: se migra cualquier valor guardado
 setLang(S.settings.lang);
 
 const TAB_ORDER = ['home', 'progress', 'history', 'profile'];
@@ -108,7 +109,8 @@ async function keepAwake(on) {
 
 // ---------- Rutas ----------
 function route() {
-  if (centralUrl() && googleClientId() && !S.account && !S.settings.guest) return 'login';
+  // Sin cuenta no se entra a nada (solo en desarrollo local, sin servidor central, se deja pasar).
+  if (centralUrl() && (!S.account || ui.mailRelogin)) return 'login';
   if (S.account && !S.account.consent) return 'consent';
   if (S.account && S.account.consent && S.account.datosOk === false) return 'datos';
   if (S.account && S.account.estado && S.account.estado !== 'Aprobado') return 'pending';
@@ -139,6 +141,7 @@ function handleBack() {
   if (r === 'plan') { ui.plan = null; go('tabs', 'home', 'back'); return; }
   if (r === 'session') { openModal({ type: 'leave' }); history.pushState({ d: 1 }, ''); return; }
   if (r === 'summary') { history.pushState({ d: 1 }, ''); return; }
+  if (r === 'login' && loginState().step !== 'choose') { A.mailBack(); history.pushState({ d: 1 }, ''); return; }
   if (r === 'tabs' && ui.tab !== 'home') { setTab('home'); }
 }
 window.addEventListener('popstate', handleBack);
@@ -147,20 +150,61 @@ window.addEventListener('popstate', handleBack);
 const logo = () => `<div class="logo">FORM<span>D</span></div>`;
 const backBtn = (extra = '') => `<button class="icon-btn" data-a="back" aria-label="${t('common.back')}">${ICON.back}</button>${extra}`;
 
+// Pantalla de acceso (obligatoria): pasos 'choose' (Google / correo), 'email' y 'code'.
+const loginState = () => (ui.login ??= { step: 'choose', email: '', code: '', busy: false, err: '', cdEnd: 0 });
+const EMAIL_OK = /^[^\s@<>(),;:"\\]+@[^\s@<>(),;:"\\]+\.[^\s@<>(),;:"\\]{2,}$/;
+const resendLeft = () => Math.max(0, Math.ceil((loginState().cdEnd - Date.now()) / 1000));
+const resendLabel = () => (resendLeft() > 0 ? t('login.resendIn', { n: resendLeft() }) : t('login.resend'));
+
 function viewLogin() {
+  const L = loginState();
+  const msg = L.err || (L.step === 'choose' ? ui.loginMsg : '');
+  const warn = msg ? `<div class="warn" role="alert">${esc(msg)}</div>` : '';
+  if (L.step === 'email') {
+    return `<main class="pad col stagger">
+      <div class="row between">${backBtn()}${logo()}<span class="icon-sp"></span></div>
+      <div class="grow"></div>
+      <h1 class="hero">${t('login.mailTitle')}</h1>
+      <p class="mut">${t('login.mailSub')}</p>
+      <form class="col" data-form="sendCode" novalidate>
+        <label class="fld"><span class="mut xs">${t('login.mailLabel')}</span><input id="l-email" data-l="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="120" value="${esc(L.email)}" ${L.busy ? 'disabled' : ''}></label>
+        ${warn}
+        <button class="cta ${L.busy ? 'dim' : ''}" type="submit" aria-disabled="${L.busy}">${L.busy ? t('login.sending') : t('login.send')}</button>
+      </form>
+      <div class="grow"></div>
+    </main>`;
+  }
+  if (L.step === 'code') {
+    return `<main class="pad col stagger">
+      <div class="row between">${backBtn()}${logo()}<span class="icon-sp"></span></div>
+      <div class="grow"></div>
+      <h1 class="hero">${t('login.codeTitle')}</h1>
+      <p class="mut brk">${t('login.codeSub', { email: esc(L.email) })}</p>
+      <form class="col" data-form="verifyCode" novalidate>
+        <input id="l-code" class="otp" data-l="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="······" aria-label="${t('login.codeLabel')}" value="${esc(L.code)}" ${L.busy ? 'disabled' : ''}>
+        ${warn}
+        ${L.busy ? `<div class="mut sm center">${t('login.verifying')}</div>` : ''}
+        <button class="link" type="button" data-a="resendCode" data-tick="resend" aria-disabled="${resendLeft() > 0 || L.busy}">${resendLabel()}</button>
+      </form>
+      <div class="grow"></div>
+    </main>`;
+  }
   return `<main class="pad col stagger">
     <div class="row between">${logo()}<span></span></div>
     <div class="grow"></div>
     <h1 class="hero">${t('login.title')}</h1>
     <p class="mut">${t('login.sub')}</p>
-    <div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>
-    ${ui.loginMsg ? `<div class="warn">${esc(ui.loginMsg)}</div>` : ''}
+    ${googleClientId() ? `<div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>` : ''}
+    <button class="cta ghost" data-a="mailStart">${t('login.mail')}</button>
+    <!-- Espacio reservado para «Continuar con Apple» y «Continuar con Facebook» (ver README, «Más formas de entrar»). -->
+    <div class="sso-slot" data-slot="apple-facebook"></div>
+    ${warn}
     <div class="grow"></div>
-    <button class="link" data-a="guest">${t('login.guest')}</button>
-    <p class="mut xs center">${t('login.guestNote')}</p>
     <p class="mut xs center legalnote">${t('login.legal', { a: '<a href="terminos.html" target="_blank" rel="noopener">', b: '<a href="privacidad.html" target="_blank" rel="noopener">', z: '</a>' })}</p>
   </main>`;
 }
+// TODO(Apple): botón «Continuar con Apple» dentro de .sso-slot cuando existan Services ID + dominio (README).
+// TODO(Facebook): botón «Continuar con Facebook» dentro de .sso-slot cuando la app de Meta esté revisada (README).
 
 const LEGAL_A = (h) => `<a href="${h}" target="_blank" rel="noopener">`;
 const consAll = () => ui.cons?.t && ui.cons?.p && ui.cons?.s;
@@ -323,7 +367,8 @@ function viewHome() {
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
     ${resume}
-    ${S.account && ui.expired ? `<div class="expired"><span>${t('account.reconnect')}</span><div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div></div>` : ''}
+    ${ui.update ? `<button class="adminnote" data-a="applyUpdate"><span>${t('update.available')}</span></button>` : ''}
+    ${S.account && ui.expired ? `<div class="expired"><span>${t('account.reconnect')}</span>${S.account.metodo === 'correo' ? `<button class="seg" data-a="reloginMail">${t('login.mailAgain')}</button>` : `<div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>`}</div>` : ''}
     ${isAdmin() && ui.adminPending > 0 ? `<button class="adminnote" data-a="openAdmin"><span class="bubble">${ui.adminPending}</span><span>${ui.adminPending === 1 ? t('admin.homeOne') : t('admin.homeMany', { n: ui.adminPending })}</span><span class="chev">${ICON.chev}</span></button>` : ''}
     <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
     <div class="grow-sm"></div>
@@ -645,7 +690,7 @@ function sessionCard(s) {
   const sum = cnt.length ? `<ul class="exsum">${cnt.slice(0, 3).map((c) => `<li>${line(c)}</li>`).join('')}${cnt.length > 3 ? `<li class="mut">${t('history.more', { n: cnt.length - 3 })}</li>` : ''}</ul>` : '';
   return `<details class="card sess" data-sid="${esc(s.id)}" ${ui.histOpen === s.id ? 'open' : ''}><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
     <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + s.prs + ' PR' : ''}</div>${sum}</div>
-    <button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></summary>
+    <div class="col gap"><button class="icon-btn" data-a="openHistEdit" data-s="${esc(s.id)}" aria-label="${t('history.editSet')}"><i class="pen">✎</i></button><button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></div></summary>
     <ul class="list">${det}</ul></details>`;
 }
 
@@ -797,10 +842,10 @@ function viewProfile() {
       ${rowSheet('openWeekCfg', t('profile.week'), `<span class="mut sm">${(S.settings.week ?? DEFAULT_WEEK).min}–${(S.settings.week ?? DEFAULT_WEEK).max}</span>`)}
       ${rowSheet('openRemind', t('profile.remind'), `<span class="${r.app || r.cal ? 'dot-ok' : 'dot-off'}"></span>`)}
       ${rowSheet('openEquipSheet', t('profile.equip'))}
-      ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : (centralUrl() && googleClientId() ? rowSheet('toLogin', t('account.signIn')) : '')}
+      ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : ''}
       ${isAdmin() ? rowSheet('openAdmin', t('admin.row'), ui.adminPending > 0 ? `<span class="bubble">${ui.adminPending}</span>` : '') : ''}
       ${rowSheet('openLegal', t('profile.legal'))}
-      ${S.account ? '' : rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
+      ${S.account || centralUrl() ? '' : rowSheet('openSheetsSheet', 'Google Sheets', `<span class="${connected ? 'dot-ok' : 'dot-off'}"></span>`)}
     </div>
     <div class="row gap"><button class="link" data-a="backup">${t('profile.backup')}</button><button class="link bad" data-a="resetAll">${t('profile.reset')}</button></div>
     <p class="mut xs center credit"><a href="creditos.html" target="_blank" rel="noopener">Anatomía: OpenStax / T. Kebert · CC BY-SA 4.0</a></p>
@@ -879,6 +924,14 @@ function modalHTML() {
       <p>${esc(e[lang()])}</p><p class="mut xs">${t('evidence.noCite')}</p>`;
   } else if (m.type === 'why') {
     inner = `<h2>${t('plan.whyTitle')}</h2><div class="col">${ui.plan.why.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
+  } else if (m.type === 'histlist') {
+    const hs = S.history.find((x) => x.id === m.sid);
+    const rows = (hs?.series ?? []).map((x, i) => {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex || ex.kind !== 'strength') return '';
+      return `<button class="setrow" data-a="editHistSet" data-s="${esc(hs.id)}" data-i="${i}"><span>${esc(exName(ex))} · ${t('session.setN', { n: x.serie ?? i + 1 })}</span><span class="num-s">${fmtW(x.peso_kg || 0)} × ${x.reps} <i class="pen">✎</i></span></button>`;
+    }).join('');
+    inner = `<h2>${t('history.editSet')}</h2><div class="mut xs">${t('history.tapToFix')}</div><div class="col histlist">${rows || `<p class="mut">${t('history.noData')}</p>`}</div>`;
   } else if (m.type === 'edithist') {
     const hs = S.history.find((x) => x.id === m.sid), hx = hs?.series?.[m.i];
     if (hx) {
@@ -924,7 +977,7 @@ function modalHTML() {
     inner = `<h2>${t('account.log')}</h2>` + (L.loading ? `<p class="mut">${t('admin.loading')}</p>` : L.err ? `<div class="warn">${esc(L.err)}</div>` : !L.list?.length ? `<p class="mut">${t('log.empty')}</p>` : `<div class="col loglist">${L.list.map((a) => `<div class="logrow"><div class="row between"><b>${esc(String(a.fecha_hora ?? '').slice(0, 16))}</b><span class="mut xs">v${esc(a.version)}</span></div><div class="acc xs">${mk(a.terminos)} ${t('log.terms')} · ${mk(a.privacidad)} ${t('log.priv')} · ${mk(a.salud)} ${t('log.health')}</div><div class="mut xs logdev">${esc(a.dispositivo)}</div></div>`).join('')}</div>`);
   } else if (m.type === 'legal') {
     const lk = (h, k) => `<a class="rowitem" href="${h}" target="_blank" rel="noopener"><span>${t(k)}</span><span class="chev">${ICON.chev}</span></a>`;
-    inner = `<h2>${t('profile.legal')}</h2><div class="col list">${lk('terminos.html', 'legal.terms')}${lk('privacidad.html', 'legal.privacy')}${lk('creditos.html', 'legal.credits')}<button class="rowitem" data-a="openClaim"><span>${t('legal.claims')}</span><span class="chev">${ICON.chev}</span></button></div>`;
+    inner = `<h2>${t('profile.legal')}</h2><div class="col list">${lk('terminos.html', 'legal.terms')}${lk('privacidad.html', 'legal.privacy')}${lk('creditos.html', 'legal.credits')}<button class="rowitem" data-a="openClaim"><span>${t('legal.claims')}</span><span class="chev">${ICON.chev}</span></button><button class="rowitem" data-a="checkUpdate"><span>${t('update.check')} · v${APP_V}</span><span class="chev">${ICON.chev}</span></button></div>`;
   } else if (m.type === 'claim') {
     const c = claimState();
     if (!S.account) inner = `<h2>${t('legal.claims')}</h2><p class="mut">${t('claim.noAccount')}</p>`;
@@ -969,7 +1022,7 @@ function modalHTML() {
           <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none')}</p>`}`;
   }
-  const showClose = ['edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
+  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
   const adm = m.type === 'admin';
   const still = adm && m.shown ? ' still' : '';
   if (adm) m.shown = true;
@@ -985,7 +1038,7 @@ function render() {
   let html;
   if (r === 'tabs') html = ui.tab === 'history' ? viewHistory() : ui.tab === 'profile' ? viewProfile() : ui.tab === 'progress' ? viewProgress() : viewHome();
   else html = views[r]();
-  const key = r + (r === 'tabs' ? ui.tab : '') + (r === 'welcome' || r === 'equip' ? '' : '');
+  const key = r + (r === 'tabs' ? ui.tab : '') + (r === 'login' ? loginState().step : '') + (r === 'welcome' || r === 'equip' ? '' : '');
   const changed = render.key !== key;
   const deeper = changed && DEEP.has(r) && ui.dir === 'fwd';
   const y = window.scrollY;
@@ -1077,8 +1130,30 @@ const A = {
     openModal({ type: 'demo', code: ex.code });
   },
   introDone() { S.active.introCode = S.active.plan.blocks[S.active.idx].code; persist(); render(); },
-  guest() { S.settings.guest = true; persist(); render(); },
-  toLogin() { S.settings.guest = false; ui.loginMsg = ''; persist(); render(); },
+  mailStart() {
+    const L = loginState();
+    L.step = 'email'; L.err = ''; L.code = ''; ui.dir = 'fwd';
+    history.pushState({ d: 1 }, ''); render(); focusLogin();
+  },
+  mailBack() {
+    const L = loginState();
+    if (L.step === 'code') { L.step = 'email'; L.code = ''; L.err = ''; L.busy = false; ui.dir = 'back'; render(); focusLogin(); return; }
+    if (ui.mailRelogin) { ui.mailRelogin = false; ui.login = null; ui.dir = 'back'; render(); return; }
+    L.step = 'choose'; L.err = ''; L.busy = false; ui.dir = 'back'; render();
+  },
+  reloginMail() { ui.login = { step: 'email', email: S.account?.email ?? '', code: '', busy: false, err: '', cdEnd: 0 }; ui.mailRelogin = true; history.pushState({ d: 1 }, ''); render(); focusLogin(); },
+  async sendCode() {
+    const L = loginState();
+    if (L.busy) return;
+    L.email = (document.getElementById('l-email')?.value ?? L.email).trim().toLowerCase();
+    if (L.email.length > 120 || !EMAIL_OK.test(L.email)) { L.err = t('login.mailBad'); render(); focusLogin(); return; }
+    await requestCode();
+  },
+  async resendCode() {
+    const L = loginState();
+    if (L.busy || resendLeft() > 0) return;
+    L.code = ''; await requestCode();
+  },
   declineTerms() { ui.cons = null; signOutLocal(true); },
   async saveDatos() {
     const v = (id) => document.getElementById('d-' + id)?.value.trim() ?? '';
@@ -1408,6 +1483,9 @@ const A = {
   progRange(el) { ui.progRange = Number(el.dataset.v); ui.progDay = null; render(); },
   progMetric(el) { ui.progMetric = el.dataset.v; ui.progAnim = true; render(); },
   progPeriod(el) { ui.progPeriod = el.dataset.v; ui.progAnim = true; render(); },
+  applyUpdate() { applyUpdate(); },
+  checkUpdate() { checkUpdate(true); },
+  openHistEdit(el) { ui.histOpen = el.dataset.s; openModal({ type: 'histlist', sid: el.dataset.s }); },
   editHistSet(el) { ui.histOpen = el.dataset.s; openModal({ type: 'edithist', sid: el.dataset.s, i: Number(el.dataset.i) }); },
   saveHistSet() {
     const hs = S.history.find((x) => x.id === ui.modal?.sid), hx = hs?.series?.[ui.modal?.i];
@@ -1416,7 +1494,7 @@ const A = {
     const reps = Number(document.getElementById('e-r')?.value || 0);
     if (!(reps > 0)) return toast(lang() === 'en' ? 'Enter the reps' : 'Escribe las repeticiones');
     hx.peso_kg = Math.round(toKg(w) * 100) / 100; hx.reps = reps;
-    touchHistSession(hs); closeModal(); toast(t('history.fixed'));
+    touchHistSession(hs); openModal({ type: 'histlist', sid: hs.id }); toast(t('history.fixed'));
   },
   removeHistSet() {
     const sid = ui.modal?.sid, i = ui.modal?.i;
@@ -1424,7 +1502,7 @@ const A = {
       const hs = S.history.find((x) => x.id === sid);
       if (!hs?.series?.[i]) return;
       hs.series.splice(i, 1);
-      touchHistSession(hs); toast(t('history.fixed'));
+      touchHistSession(hs); openModal({ type: 'histlist', sid: hs.id }); toast(t('history.fixed'));
     });
   },
   histTab(el) { ui.histTab = el.dataset.v; render(); },
@@ -1634,9 +1712,69 @@ async function refreshAccount() {
     if (isAdmin()) adminLoad(true);
     if (S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) doSync(false);
   } catch (e) {
-    if (e.auth === false) return;
+    if (e.auth === false) { if (S.account?.metodo === 'correo') { S.account.sess = null; persist(); ui.expired = true; render(); } return; }
     toast(navigator.onLine ? t('login.failed') : t('login.offline'));
   }
+}
+
+// ---------- Inicio de sesión con correo + código ----------
+function loginErr(e) {
+  if (!navigator.onLine) return t('login.offline');
+  const m = String(e?.message ?? '');
+  if (/^demasiados/.test(m)) return t('login.tooMany');
+  if (/^c[oó]digo/.test(m)) return t('login.codeBad');
+  if (/^correo/.test(m)) return t('login.mailBad');
+  return t('login.failed');
+}
+const focusLogin = () => setTimeout(() => { const el = document.getElementById('l-code') || document.getElementById('l-email'); try { el?.focus({ preventScroll: true }); } catch { /* sin foco */ } }, 60);
+
+async function requestCode() {
+  const L = loginState();
+  L.busy = true; L.err = ''; render();
+  try {
+    await publicCall('codigo_pedir', { email: L.email });
+    L.busy = false; L.step = 'code'; L.cdEnd = Date.now() + 30000; L.code = '';
+    ui.dir = 'fwd'; render(); focusLogin();
+  } catch (e) {
+    L.busy = false; L.err = loginErr(e); render();
+    if (L.step === 'email') focusLogin();
+  }
+}
+
+async function verifyCode() {
+  const L = loginState();
+  if (L.busy || !/^\d{6}$/.test(L.code)) return;
+  L.busy = true; L.err = ''; render();
+  let r;
+  try { r = await publicCall('codigo_verificar', { email: L.email, codigo: L.code }); } catch (e) {
+    L.busy = false; L.code = ''; L.err = loginErr(e); render(); focusLogin(); return;
+  }
+  await onMailLogin(r);
+}
+
+async function onMailLogin(r) {
+  const email = String(r.email).toLowerCase();
+  // Si entra otra cuenta en este mismo celular, no se mezclan datos. Quien venía sin cuenta conserva su historial y se sube al entrar.
+  if (S.lastEmail && S.lastEmail !== email) wipeLocalData();
+  else if (!S.lastEmail) S.pending = [...new Set([...S.pending, ...S.history.map((h) => h.id)])];
+  const same = S.account?.email === email;
+  S.account = { ...(same ? S.account : {}), email, name: same ? (S.account.name ?? '') : '', token: null, exp: 0, sess: r.sesion, consent: same ? Boolean(S.account.consent) : false, metodo: 'correo', terminos: S.account?.terminos };
+  S.lastEmail = email; ui.loginMsg = ''; ui.expired = false; ui.mailRelogin = false; ui.login = null; ui.cons = null;
+  persist(); render(); window.scrollTo(0, 0);
+  try {
+    applyEntrar(await api(S, 'entrar'));
+    if (S.account.consent && S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) afterConsent();
+    else if (isAdmin()) adminLoad(true);
+  } catch { toast(navigator.onLine ? t('login.failed') : t('login.offline')); }
+}
+
+function applyEntrar(r) {
+  if (r.sesion) S.account.sess = r.sesion;
+  S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
+  S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos;
+  S.account.admin = Boolean(r.admin);
+  applyServerProfile(r.perfil);
+  persist(); render(); window.scrollTo(0, 0);
 }
 
 async function onCredential(resp) {
@@ -1646,17 +1784,12 @@ async function onCredential(resp) {
     // Si entra otra cuenta en este mismo celular, no se mezclan datos.
     if (S.lastEmail && S.lastEmail !== email) wipeLocalData();
     S.account = { email, name: p.name ?? '', token: resp.credential, exp: p.exp, sess: null, consent: S.account?.email === email ? S.account.consent : false, terminos: S.account?.terminos };
+    if (!S.lastEmail) S.pending = [...new Set([...S.pending, ...S.history.map((h) => h.id)])]; // el historial de antes de tener cuenta se sube
     S.lastEmail = email; ui.loginMsg = ''; ui.expired = false;
     for (const w of tokenWaiters.splice(0)) w(true);
     persist();
     if (S.account.consent && S.account.exp) { render(); await refreshAccount(); return; }
-    const r = await api({ ...S, account: { ...S.account, consent: true } }, 'entrar');
-    if (r.sesion) S.account.sess = r.sesion;
-    S.account.consent = Boolean(r.consentimiento); S.account.terminos = r.terminos;
-    S.account.estado = r.estado; S.account.datosOk = Boolean(r.datos_completos); S.account.datos = r.datos;
-    S.account.admin = Boolean(r.admin);
-    applyServerProfile(r.perfil);
-    persist(); render(); window.scrollTo(0, 0);
+    applyEntrar(await api({ ...S, account: { ...S.account, consent: true } }, 'entrar'));
     if (S.account.consent && S.account.datosOk && (!S.account.estado || S.account.estado === 'Aprobado')) afterConsent();
   } catch (e) {
     ui.loginMsg = navigator.onLine ? t('login.failed') : t('login.offline'); render();
@@ -1682,6 +1815,7 @@ async function afterConsent() {
 async function ensureToken() {
   if (!accountMode(S)) return true;
   if (S.account.sess) return true;
+  if (S.account.metodo === 'correo') { ui.expired = true; return false; } // la sesión por correo no se renueva sola: pide un código nuevo
   if (S.account.token && S.account.exp * 1000 > Date.now() + 120000) return true;
   for (let i = 0; i < 20 && !gisReady; i++) await new Promise((r) => setTimeout(r, 250)); // espera a que cargue Google
   if (!gisReady) { ui.expired = true; return false; }
@@ -1702,7 +1836,7 @@ function signOutLocal(toLogin) {
   const keep = { lang: S.settings.lang, unit: S.settings.unit };
   try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* sin GIS */ }
   wipeLocalData();
-  S.account = null; S.lastEmail = null;
+  S.account = null; S.lastEmail = null; ui.login = null; ui.mailRelogin = false;
   S.settings = { ...load().settings, ...keep, guest: false };
   S.settings.mode = null; S.settings.onboarded = false; ui.onbStep = 1; ui.modal = null;
   persist(); render();
@@ -1781,7 +1915,30 @@ $app.addEventListener('click', (e) => {
 $app.addEventListener('input', (e) => {
   const k = e.target.dataset?.claim;
   if (k && ui.claim) ui.claim[k] = e.target.value;
+  const l = e.target.dataset?.l;
+  if (l === 'email') loginState().email = e.target.value;
+  if (l === 'code') {
+    const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+    if (v !== e.target.value) e.target.value = v;
+    loginState().code = v;
+    if (v.length === 6) verifyCode();
+  }
 });
+$app.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.target.dataset?.form;
+  if (f === 'sendCode') A.sendCode();
+  else if (f === 'verifyCode') verifyCode();
+});
+// Cuenta atrás de «Reenviar código»: solo toca el botón, sin redibujar (no se pierde lo escrito).
+setInterval(() => {
+  if (route() !== 'login' || loginState().step !== 'code') return;
+  const b = $app.querySelector('[data-tick="resend"]');
+  if (!b) return;
+  const txt = resendLabel(), off = resendLeft() > 0 || loginState().busy;
+  if (b.textContent !== txt) b.textContent = txt;
+  b.setAttribute('aria-disabled', String(off));
+}, 500);
 $app.addEventListener('change', (e) => {
   const el = e.target.closest('[data-a]');
   if (el && (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'time')) A[el.dataset.a]?.(el, e);
@@ -1841,8 +1998,34 @@ function splashOnce() {
   setTimeout(() => el.remove(), reduced() ? 900 : 3400);
 }
 
+// ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
+const APP_V = '28';
+async function applyUpdate() {
+  try {
+    (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
+    (await caches.keys()).forEach((k) => caches.delete(k));
+  } catch { /* sin caché */ }
+  location.reload();
+}
+async function checkUpdate(manual) {
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const v = (await r.json()).v;
+    if (v && v !== APP_V) {
+      // Solo se recarga sola si no hay entrenamiento en curso; y como máximo una vez por versión (evita bucles).
+      const key = 'formd.upd.' + v;
+      let tried = false;
+      try { tried = sessionStorage.getItem(key) === '1'; } catch { /* sin almacenamiento */ }
+      if (!S.active && !manual && !tried) { try { sessionStorage.setItem(key, '1'); } catch { /* sin almacenamiento */ } applyUpdate(); return; }
+      ui.update = true; render();
+    } else if (manual) toast(t('update.none'));
+  } catch { if (manual) toast(t('sync.offline')); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && navigator.onLine) checkUpdate(false); });
+
 render();
 splashOnce();
+if (navigator.onLine) checkUpdate(false);
 bgSync();
 loadBody().then((ok) => ok && render());
 touchAgenda();

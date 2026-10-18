@@ -85,6 +85,14 @@ export async function api(state, action, extra = {}) {
   return data;
 }
 
+// Llamadas al servidor central SIN sesión (inicio de sesión con correo + código).
+export async function publicCall(action, extra = {}) {
+  const res = await fetch(centralUrl(), { method: 'POST', headers: { 'content-type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, ...extra }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || 'Error ' + res.status);
+  return data;
+}
+
 function toRemote(s) {
   return {
     id: s.id, fecha: s.fecha, modo: s.modo, titulo: s.titulo, minutos_plan: s.minutos_plan,

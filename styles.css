@@ -503,3 +503,22 @@ a.rowitem { color: inherit; text-decoration: none; }
 .sheet .wrap { flex-wrap: wrap; }
 .credit a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .sheet .fld input { width: 100%; box-sizing: border-box; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; min-height: 46px; font: inherit; }
+
+/* Acceso: correo + código */
+.cta.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
+.cta.ghost:active { background: #0b0b0b; box-shadow: none; }
+.sso-slot { display: flex; flex-direction: column; gap: 10px; } /* futuros «Continuar con Apple / Facebook» */
+.sso-slot:empty { display: none; }
+.icon-sp { width: 34px; height: 44px; }
+.otp { width: 100%; box-sizing: border-box; height: 64px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 16px; font: 700 30px var(--display); letter-spacing: .5em; text-indent: .5em; text-align: center; }
+.otp:focus { outline: none; border-color: var(--ac); }
+.otp::placeholder { color: var(--mut); opacity: .5; }
+form.col { gap: 14px; }
+form.col .fld input { width: 100%; box-sizing: border-box; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; min-height: 52px; font: inherit; font-size: 16px; }
+form.col .fld input:focus { outline: none; border-color: var(--ac); }
+.link[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+.cta[aria-disabled="true"] { pointer-events: none; }
+
+.histlist { gap: 2px; max-height: 50vh; overflow-y: auto; }
+.histlist .setrow { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.col.gap { gap: 6px; }
