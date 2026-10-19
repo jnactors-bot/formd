@@ -271,16 +271,23 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
   blocks.push({ type: 'warmup', minutes: warmup, seconds: warmup * 60 });
 
   if (chosen === 'cardio_easy' || chosen === 'cardio_interval') {
-    const list = chosen === 'cardio_easy' ? CARDIO_EASY : CARDIO_HARD;
+    const fat = mode === 'fatloss';
+    // Bajar de peso: caminata inclinada primero (sostenible y de bajo impacto). Híbrido: carrera suave primero.
+    const easy = fat ? ['incline_walk', ...CARDIO_EASY.filter((c) => c !== 'incline_walk')] : CARDIO_EASY;
+    const list = chosen === 'cardio_easy' ? easy : CARDIO_HARD;
     const ex = list.map((c) => BY_CODE.get(c)).find((e) => e && hasEquip(avail, e.equipment));
     if (ex) {
       const total = budget;
       const interval = chosen === 'cardio_interval';
-      const rounds = interval ? Math.max(3, Math.floor((total >= 900 ? total - 480 : total) / 90)) : 0; // 30 s fuerte + 60 s suave (con calentar 5′ y enfriar 3′ dentro del tiempo)
+      // Híbrido: 60 s fuerte + 90 s suave (base de velocidad). Bajar de peso: 30 s fuerte + 60 s suave (más corto y llevadero).
+      const work = fat ? 30 : 60, easyS = fat ? 60 : 90;
+      const main = total >= 900 ? total - 480 : total; // calentar 5′ y enfriar 3′ van dentro del tiempo
+      const rounds = interval ? Math.max(3, Math.floor(main / (work + easyS))) : 0;
+      const dur = interval ? (total >= 900 ? 480 : 0) + rounds * (work + easyS) : total;
       blocks.push({
         type: 'exercise', code: ex.code, kind: 'cardio', sets: 1, restS: 0, rir: null,
-        durationS: interval ? rounds * 90 : total, protocol: interval ? { workS: 30, easyS: 60, rounds } : null,
-        seconds: interval ? rounds * 90 : total, role: 'cardio', why: [interval ? 'recovery' : 'interference'],
+        durationS: dur, protocol: interval ? { workS: work, easyS, rounds } : null,
+        seconds: dur, role: 'cardio', why: [interval ? 'recovery' : 'interference'],
       });
       why.add(interval ? 'recovery' : 'interference');
     }

@@ -14,7 +14,7 @@ import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
 import { SHARE_URL, copyText, downloadBlob, renderShareCard, shareFile } from './share.js';
 import { warmupFor, warmupRemote } from './warmup.js';
-import { LEVELS, LEVEL_NAME, cardioSegments, describe as cardioDescribe, outline as cardioOutline, segmentAt } from './cardio.js';
+import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, cardioSegments, describe as cardioDescribe, fmtDur, isRunCode, modeNote, segmentAt, steps as cardioSteps } from './cardio.js';
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
@@ -619,22 +619,33 @@ function viewStrength(a, b) {
 
 const cardioLevel = () => (LEVELS.includes(S.settings.cardioLevel) ? S.settings.cardioLevel : 'beginner');
 
-// Cardio guiado: tramo actual con velocidad objetivo y sensación, cuenta atrás del tramo y el siguiente.
+// Escalón de principiante: cada sesión de carrera ya hecha sube un escalón (como Couch to 5K).
+function runStage() {
+  const n = S.history.filter((h) => (h.series ?? []).some((x) => isRunCode(x.ejercicio_code))).length;
+  return Math.min(BEGINNER_STAGES.length - 1, n);
+}
+const cardioSegs = (a, b) => cardioSegments(b.code, b.durationS, b.protocol, { level: cardioLevel(), mode: a.plan.mode ?? S.settings.mode, stage: runStage() });
+
+// Cardio guiado paso a paso: lista de pasos con velocidad y tiempo, y el tramo actual con cuenta atrás.
 function cardioPanel(a, b, el, running) {
-  const lv = cardioLevel(), L = lang();
-  const segs = cardioSegments(b.code, b.durationS, b.protocol, lv);
+  const lv = cardioLevel(), L = lang(), mode = a.plan.mode ?? S.settings.mode;
+  const segs = cardioSegs(a, b);
   const levels = `<div class="row gap center lvl" role="group">${LEVELS.map((k) => `<button class="chip ${k === lv ? 'on' : ''}" data-a="cardioLevel" data-v="${k}">${LEVEL_NAME[k][L]}</button>`).join('')}</div>`;
-  if (!running && !el) return `<div class="cg"><div class="cg-out">${esc(cardioOutline(segs, L))}</div>${levels}<div class="mut xs">${t('cardio.hint')}</div></div>`;
-  const cur = segmentAt(segs, el), d = cardioDescribe(b.code, cur.seg, lv, L);
-  const nx = cur.next ? cardioDescribe(b.code, cur.next, lv, L) : null;
-  const hard = cur.seg.kind === 'hard';
-  return `<div class="cg ${hard ? 'hard' : ''}">
-    <div class="cg-name" data-tick="cname">${esc(d.name)}</div>
-    ${d.speed ? `<div class="cg-speed">${esc(d.speed)}</div>` : ''}
-    <div class="cg-left num-s" data-tick="cleft">${mmss(cur.left)}</div>
-    <div class="cg-rpe">${esc(d.rpe)} · ${esc(d.cue)}</div>
-    ${nx ? `<div class="cg-next">${t('cardio.next')}: ${esc(nx.name)} ${nx.speed ? '· ' + esc(nx.speed) : ''} · ${mmss(cur.next.s)}</div>` : `<div class="cg-next">${t('cardio.last')}</div>`}
-  </div>`;
+  const started = running || el > 0;
+  const cur = started ? segmentAt(segs, el) : null;
+  const line = (sg) => { const d = cardioDescribe(b.code, sg, lv, L); return `${esc(d.name)} ${fmtDur(sg.s)}${d.speed ? ' · ' + esc(d.speed) : ''}`; };
+  const list = cardioSteps(segs).map((st) => {
+    const on = cur && cur.i >= st.from && cur.i <= st.to, done = cur && cur.i > st.to;
+    const body = st.repeat > 1 ? `${st.repeat} × (${st.parts.map(line).join(' + ')})` : line(st.parts[0]);
+    return `<li class="${on ? 'on' : done ? 'done' : ''}"><b>${st.n}</b><span>${body}</span></li>`;
+  }).join('');
+  let now = '';
+  if (cur) {
+    const d = cardioDescribe(b.code, cur.seg, lv, L), hard = ['hard', 'hardwalk'].includes(cur.seg.kind);
+    const rn = cur.seg.round ? ` · ${cur.seg.round}/${cur.seg.rounds}` : '';
+    now = `<div class="cg-now ${hard ? 'hard' : ''}"><div class="cg-name">${esc(d.name)}${rn}</div>${d.speed ? `<div class="cg-speed">${esc(d.speed)}</div>` : ''}${d.incline ? `<div class="cg-inc">${esc(d.incline)}</div>` : ''}<div class="cg-left num-s" data-tick="cleft">${mmss(cur.left)}</div><div class="cg-rpe">${esc(d.rpe)} · ${esc(d.cue)}</div></div>`;
+  }
+  return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started ? '' : `<div class="cg-note">${esc(modeNote(b.code, mode, lv, L))}</div>${levels}`}</div>`;
 }
 
 function viewTimed(a, b) {
@@ -2068,7 +2079,7 @@ setInterval(() => {
     const sw = $app.querySelector('[data-tick="stopwatch"]');
     if (sw) sw.textContent = mmss(secs);
     if (b.kind === 'cardio') {
-      const segs = cardioSegments(b.code, b.durationS, b.protocol, cardioLevel());
+      const segs = cardioSegs(a, b);
       const cur = segmentAt(segs, secs);
       const key = cur.i + (cur.done ? 'd' : '');
       if (key !== a.timer.lastSeg) {
@@ -2109,7 +2120,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '31';
+const APP_V = '32';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
