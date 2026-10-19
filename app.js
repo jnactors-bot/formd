@@ -2072,12 +2072,17 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '29';
+const APP_V = '30';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
     (await caches.keys()).forEach((k) => caches.delete(k));
   } catch { /* sin caché */ }
+  // El navegador puede guardar los archivos unos minutos: se vuelven a pedir saltando esa caché antes de recargar.
+  try {
+    const files = ['./', 'index.html', 'app.js', 'engine.js', 'store.js', 'i18n.js', 'bodymap.js', 'anim.js', 'exmap.js', 'warmup.js', 'share.js', 'stretch.js', 'catalog.js', 'styles.css', 'config.js', 'version.json'];
+    await Promise.all(files.map((f) => fetch(f, { cache: 'reload' }).catch(() => null)));
+  } catch { /* sin red */ }
   location.reload();
 }
 async function checkUpdate(manual) {
