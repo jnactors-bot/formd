@@ -18,7 +18,7 @@ import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, cardioSegments, describe as cardio
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
-import { askDismiss, askFresh, askVisit, captureInstallPrompt, isStandalone, platformOf, shouldAsk } from './install.js';
+import { askDismiss, askFresh, askVisit, captureInstallPrompt, isIOS, isStandalone, loginRecent, needsSafariFirst, platformOf, shouldAsk, shouldAskLogin } from './install.js';
 import { installSteps } from './install-ui.js';
 
 const LB = 2.2046226218;
@@ -34,14 +34,15 @@ const normCode = (raw) => {
   if (c.length === 13 && c.startsWith('FORMD')) c = c.slice(5);
   return /^[A-HJKMNP-Z2-9]{8}$/.test(c) ? 'FORMD-' + c.slice(0, 4) + '-' + c.slice(4) : '';
 };
-const savedCode = () => { try { return normCode(sessionStorage.getItem(CODE_KEY)); } catch { return ''; } };
-const clearSavedCode = () => { try { sessionStorage.removeItem(CODE_KEY); } catch { /* sin almacenamiento */ } };
+// También en localStorage: sobrevive a cerrar la pestaña de Safari (la app instalada de iPhone no comparte almacenamiento con Safari).
+const savedCode = () => { let c = ''; try { c = normCode(sessionStorage.getItem(CODE_KEY)); } catch { /* sin almacenamiento */ } if (c) return c; try { return normCode(localStorage.getItem(CODE_KEY)); } catch { return ''; } };
+const clearSavedCode = () => { try { sessionStorage.removeItem(CODE_KEY); } catch { /* sin almacenamiento */ } try { localStorage.removeItem(CODE_KEY); } catch { /* sin almacenamiento */ } };
 (function captureDeepLink() {
   try {
     const u = new URL(location.href);
     if (!u.searchParams.has('c')) return;
     const c = normCode(u.searchParams.get('c'));
-    if (c) { try { sessionStorage.setItem(CODE_KEY, c); } catch { /* sin almacenamiento */ } }
+    if (c) { try { sessionStorage.setItem(CODE_KEY, c); } catch { /* sin almacenamiento */ } try { localStorage.setItem(CODE_KEY, c); } catch { /* sin almacenamiento */ } }
     u.searchParams.delete('c');
     history.replaceState(history.state, '', u.pathname + u.search + u.hash);
   } catch { /* URL no estándar */ }
@@ -190,6 +191,21 @@ const EMAIL_OK = /^[^\s@<>(),;:"\\]+@[^\s@<>(),;:"\\]+\.[^\s@<>(),;:"\\]{2,}$/;
 const resendLeft = () => Math.max(0, Math.ceil((loginState().cdEnd - Date.now()) / 1000));
 const resendLabel = () => (resendLeft() > 0 ? t('login.resendIn', { n: resendLeft() }) : t('login.resend'));
 
+// Tarjeta «Primero ponla en tu inicio»: solo en móvil y sin instalar (en iPhone la app instalada no comparte sesión con Safari).
+const LOGIN_ASK_KEY = 'formd.instlogin';
+const loginAskAt = () => { try { return Number(localStorage.getItem(LOGIN_ASK_KEY)) || 0; } catch { return 0; } };
+const markLoginAsk = () => { try { localStorage.setItem(LOGIN_ASK_KEY, String(Date.now())); } catch { /* sin almacenamiento */ } };
+function loginInstallOn() { return shouldAskLogin(platformOf(navigator.userAgent, navigator.maxTouchPoints || 0), isStandalone(window), loginAskAt(), Date.now()); }
+function codeBoxHTML() {
+  const c = savedCode();
+  return c ? `<div class="codecopy"><div class="codecopy-row"><b>${t('inst.yourCode', { code: esc(c) })}</b><button class="seg" data-a="copyMyCode">${t('inst.copy')}</button></div><p>${t('inst.codeNote')}</p></div>` : '';
+}
+function loginInstallCard() {
+  if (!loginInstallOn()) return '';
+  const p = platformOf(navigator.userAgent, navigator.maxTouchPoints || 0);
+  return `<div class="instlogin"><b>${t('inst.lTitle')}</b><p>${needsSafariFirst(p) ? t('inst.lSafari') : t('inst.lWhy')}</p>${codeBoxHTML()}<div class="row gap"><button class="cta" data-a="openInstall">${t('inst.cardBtn')}</button><button class="seg" data-a="loginInstLater">${t('inst.later')}</button></div></div>`;
+}
+
 function viewLogin() {
   const L = loginState();
   const msg = L.err || (L.step === 'choose' ? ui.loginMsg : '');
@@ -228,9 +244,10 @@ function viewLogin() {
     <div class="grow"></div>
     <h1 class="hero">${t('login.title')}</h1>
     <p class="mut">${t('login.sub')}</p>
-    ${savedCode() ? `<p class="mut xs codesaved">${t('login.codeSaved', { last: '···· ' + savedCode().slice(-4) })}</p>` : ''}
+    ${savedCode() && !loginInstallOn() ? `<p class="mut xs codesaved">${t('login.codeSaved', { last: '···· ' + savedCode().slice(-4) })}</p>` : ''}
     ${googleClientId() ? `<div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>` : ''}
     <button class="cta ghost" data-a="mailStart">${t('login.mail')}</button>
+    ${loginInstallCard()}
     <!-- Espacio reservado para «Continuar con Apple» y «Continuar con Facebook» (ver README, «Más formas de entrar»). -->
     <div class="sso-slot" data-slot="apple-facebook"></div>
     ${warn}
@@ -283,6 +300,7 @@ function viewPending() {
   const redeem = blocked ? '' : `<form class="codebox col" data-form="redeem" novalidate>
       <h2>${t('pending.codeTitle')}</h2>
       <input id="c-code" class="codein" data-l="redeem" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="24" placeholder="FORMD-XXXX-XXXX" aria-label="${t('pending.codeLabel')}" value="${esc(ui.code ?? savedCode())}" ${busy ? 'disabled' : ''}>
+      <button class="link" type="button" data-a="pasteCode">${t('pending.paste')}</button>
       <button class="cta ${busy ? 'dim' : ''}" type="submit" aria-disabled="${busy}">${busy ? t('pending.codeBusy') : t('pending.codeBtn')}</button>
     </form>`;
   return `<main class="pad col center-col pend">
@@ -1019,7 +1037,7 @@ const installCtl = captureInstallPrompt(window, () => { if (ui.modal?.type === '
 const isInstalled = () => isStandalone(window);
 // Tarjeta discreta en Hoy: 2.ª visita (o recién aprobada), nunca instalada, nunca en sesión, 14 días tras cerrarla.
 function installAskOn() {
-  if (installPlat() === 'desktop' || S.active) return false;
+  if (installPlat() === 'desktop' || S.active || loginRecent(loginAskAt(), Date.now())) return false;
   if (ui.askDay !== todayStr()) { ui.askDay = todayStr(); S.settings.installAsk = askVisit(S.settings.installAsk); persist(); }
   return shouldAsk(S.settings.installAsk, Date.now(), isInstalled(), Boolean(S.active));
 }
@@ -1036,7 +1054,7 @@ function installHTML(m) {
   const native = installCtl.available() ? `<button class="cta" data-a="instNative">${t('inst.btn')}</button><div class="mut xs center">${t('inst.or')}</div>` : '';
   return `<div class="col" data-a="keep" style="gap:12px"><h2 style="margin:0">${t('inst.title')}</h2>${native}
     <div class="inst-dots" role="img" aria-label="${t('inst.step', { n: i + 1, total: steps.length })}">${steps.map((_, k) => `<i class="${k <= i ? 'on' : ''}"></i>`).join('')}</div>
-    ${s.svg}<div><h3 class="inst-title">${i + 1}/${steps.length} · ${esc(s.title)}</h3><p class="inst-hint">${esc(s.hint)}</p></div>
+    ${s.svg}<div><h3 class="inst-title">${i + 1}/${steps.length} · ${esc(s.title)}</h3><p class="inst-hint">${esc(s.hint)}</p></div>${last && isIOS(installPlat()) ? codeBoxHTML() : ''}
     <div class="inst-nav">${i > 0 ? `<button class="seg" data-a="instPrev" aria-label="${t('inst.prev')}">‹</button>` : ''}<button class="cta" data-a="${last ? 'closeModal' : 'instNext'}">${last ? t('inst.done') : t('inst.next') + ' ›'}</button></div></div>`;
 }
 
@@ -1263,6 +1281,7 @@ function postRender(r, changed) {
   }
   if (r === 'summary' && changed && !reduced()) countUp();
   if (r === 'login' || (S.account && ui.expired)) setTimeout(mountGoogleButton, 0);
+  if (r === 'pending' && isInstalled() && !ui.codeBusy) setTimeout(() => { const el = document.getElementById('c-code'); if (el && document.activeElement !== el) el.focus(); }, 0); // app instalada: listo para pegar el código
   // Código guardado desde el QR: se canjea una sola vez al llegar a «en revisión» y se borra pase lo que pase.
   if (r === 'pending' && !ui.codeBusy && savedCode()) {
     const c = savedCode(); clearSavedCode();
@@ -1505,7 +1524,12 @@ const A = {
   },
   openWeekCfg() { openModal({ type: 'weekcfg' }); },
   openRemind() { openModal({ type: 'remind' }); },
-  openInstall() { S.settings.installAsk = askDismiss(S.settings.installAsk, Date.now()); persist(); openModal({ type: 'install', step: 0 }); },
+  openInstall() { markLoginAsk(); S.settings.installAsk = askDismiss(S.settings.installAsk, Date.now()); persist(); openModal({ type: 'install', step: 0 }); },
+  loginInstLater() { markLoginAsk(); render(); },
+  async copyMyCode() { const ok = await copyText(savedCode()); toast(t(ok ? 'inst.copied' : 'share.copyFail')); },
+  async pasteCode() {
+    try { const v = normCode(await navigator.clipboard.readText()); if (!v) { toast(t('pending.codeBad')); return; } ui.code = v; render(); } catch { toast(t('pending.pasteFail')); }
+  },
   instNext() { if (ui.modal?.type === 'install') { ui.modal.step = (ui.modal.step ?? 0) + 1; render(); } },
   instPrev() { if (ui.modal?.type === 'install') { ui.modal.step = Math.max(0, (ui.modal.step ?? 0) - 1); render(); } },
   async instNative() { const r = await installCtl.prompt(); if (r === 'accepted') { closeModal(); toast(t('inst.done')); } },
@@ -2290,7 +2314,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '33';
+const APP_V = '34';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());

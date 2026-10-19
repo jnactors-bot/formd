@@ -54,3 +54,17 @@ export function shouldAsk(st, now, standalone, inSession = false) {
   if (s.at && now - s.at < ASK_COOLDOWN_DAYS * DAY) return false;
   return s.fresh || s.n >= 2;
 }
+
+// ---- Invitación previa al inicio de sesión (pantalla de entrada) ----
+// En iPhone la app instalada NO comparte sesión ni almacenamiento con Safari: conviene instalar ANTES de entrar.
+export const LOGIN_COOLDOWN_DAYS = 3;
+export const isMobilePlat = (p) => isIOS(p) || isAndroid(p);
+// at: marca (ms) de «Ahora no» / «Ver cómo» en la tarjeta del login (0 = nunca).
+export function shouldAskLogin(platform, standalone, at, now) {
+  if (standalone || !isMobilePlat(platform)) return false;
+  return !(at && now - at < LOGIN_COOLDOWN_DAYS * DAY);
+}
+// La tarjeta del login y la de Hoy comparten el estado de «cerrado»: la de Hoy se calla si el login se atendió hace <3 días.
+export const loginRecent = (at, now) => Boolean(at) && now - at < LOGIN_COOLDOWN_DAYS * DAY;
+// ios-other (Instagram, TikTok, Chrome iOS...) debe abrir primero en Safari.
+export const needsSafariFirst = (p) => p === 'ios-other';

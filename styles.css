@@ -597,3 +597,14 @@ form.col .fld input:focus { outline: none; border-color: var(--ac); }
 .instcard .seg { min-height: 34px; padding: 0 12px; font-size: 12px; }
 .instcard .x { background: none; border: 0; color: var(--mut); font-size: 18px; width: 34px; height: 34px; }
 .inst-title { min-height: 2.35em; display: flex; align-items: flex-end; } .inst-nav .seg { font-size: 22px; }
+
+/* Invitación a instalar antes de entrar (login) + código copiable */
+.instlogin { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 12px 14px; border-radius: 14px; border: 1px solid #2c3a10; background: #000; }
+.instlogin > b { font: 800 15px/1.2 var(--display); color: var(--ink); }
+.instlogin > p { margin: 0; color: var(--mut); font-size: 13px; line-height: 1.35; }
+.instlogin .cta { flex: 1; min-height: 44px; } .instlogin .seg { min-height: 44px; padding: 0 14px; font-size: 13px; }
+.codecopy { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px dashed #3a4a14; background: #000; }
+.codecopy-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.codecopy-row b { font: 700 13px var(--body); color: var(--ac); letter-spacing: .04em; overflow-wrap: anywhere; }
+.codecopy .seg { min-height: 34px; padding: 0 12px; font-size: 12px; }
+.codecopy p { margin: 0; color: var(--mut); font-size: 12px; line-height: 1.3; }
