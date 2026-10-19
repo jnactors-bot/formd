@@ -18,11 +18,34 @@ import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, cardioSegments, describe as cardio
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
+import { askDismiss, askFresh, askVisit, captureInstallPrompt, isStandalone, platformOf, shouldAsk } from './install.js';
+import { installSteps } from './install-ui.js';
 
 const LB = 2.2046226218;
 let S = load();
 S.settings.guest = false; // el modo invitado ya no existe: se migra cualquier valor guardado
 setLang(S.settings.lang);
+
+// ---------- Código de compra (tarjeta de la caja) ----------
+// El QR abre la app con ?c=FORMD-XXXX-XXXX: se guarda en sessionStorage (solo esta pestaña), se limpia la URL y se usa al llegar a «en revisión».
+const CODE_KEY = 'formd.code';
+const normCode = (raw) => {
+  let c = String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (c.length === 13 && c.startsWith('FORMD')) c = c.slice(5);
+  return /^[A-HJKMNP-Z2-9]{8}$/.test(c) ? 'FORMD-' + c.slice(0, 4) + '-' + c.slice(4) : '';
+};
+const savedCode = () => { try { return normCode(sessionStorage.getItem(CODE_KEY)); } catch { return ''; } };
+const clearSavedCode = () => { try { sessionStorage.removeItem(CODE_KEY); } catch { /* sin almacenamiento */ } };
+(function captureDeepLink() {
+  try {
+    const u = new URL(location.href);
+    if (!u.searchParams.has('c')) return;
+    const c = normCode(u.searchParams.get('c'));
+    if (c) { try { sessionStorage.setItem(CODE_KEY, c); } catch { /* sin almacenamiento */ } }
+    u.searchParams.delete('c');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  } catch { /* URL no estándar */ }
+})();
 
 const TAB_ORDER = ['home', 'progress', 'history', 'profile'];
 const ui = {
@@ -205,6 +228,7 @@ function viewLogin() {
     <div class="grow"></div>
     <h1 class="hero">${t('login.title')}</h1>
     <p class="mut">${t('login.sub')}</p>
+    ${savedCode() ? `<p class="mut xs codesaved">${t('login.codeSaved', { last: '···· ' + savedCode().slice(-4) })}</p>` : ''}
     ${googleClientId() ? `<div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>` : ''}
     <button class="cta ghost" data-a="mailStart">${t('login.mail')}</button>
     <!-- Espacio reservado para «Continuar con Apple» y «Continuar con Facebook» (ver README, «Más formas de entrar»). -->
@@ -255,12 +279,20 @@ function viewDatos() {
 
 function viewPending() {
   const blocked = S.account?.estado === 'Bloqueado';
-  return `<main class="pad col center-col">
+  const busy = Boolean(ui.codeBusy);
+  const redeem = blocked ? '' : `<form class="codebox col" data-form="redeem" novalidate>
+      <h2>${t('pending.codeTitle')}</h2>
+      <input id="c-code" class="codein" data-l="redeem" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="24" placeholder="FORMD-XXXX-XXXX" aria-label="${t('pending.codeLabel')}" value="${esc(ui.code ?? savedCode())}" ${busy ? 'disabled' : ''}>
+      <button class="cta ${busy ? 'dim' : ''}" type="submit" aria-disabled="${busy}">${busy ? t('pending.codeBusy') : t('pending.codeBtn')}</button>
+    </form>`;
+  return `<main class="pad col center-col pend">
     ${logo()}
     <h1 class="hero">${t(blocked ? 'pending.blockedTitle' : 'pending.title')}</h1>
-    <p class="mut">${t(blocked ? 'pending.blockedSub' : 'pending.sub')}</p>
+    ${blocked ? `<p class="mut">${t('pending.blockedSub')}</p>` : ''}
     <div class="mut xs">${esc(S.account?.email ?? '')}</div>
-    <button class="cta" data-a="refreshAccount">${t('pending.retry')}</button>
+    ${redeem}
+    ${blocked ? '' : `<p class="mut xs">${t('pending.manual')}</p>`}
+    <button class="cta ghost" data-a="refreshAccount">${t('pending.retry')}</button>
     <button class="link" data-a="declineTerms">${t('datos.signOut')}</button>
   </main>`;
 }
@@ -386,7 +418,7 @@ function viewHome() {
     <div><div class="row between"><div class="kicker">${t('mode.' + mode).toUpperCase()}</div><button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>
       <h1 class="hero">${splitName(split)}</h1>${note}${soft}</div>
     <div class="row gap times" role="group" aria-label="${t('home.howMuchTime')}">${TIMES.map((m) => `<button class="chip ${ui.minutes === m ? 'on' : ''}" data-a="minutes" data-v="${m}" aria-pressed="${ui.minutes === m}">${m}</button>`).join('')}</div>
-    <div class="grow"></div>
+    <div class="grow col" style="justify-content:flex-end">${installAskOn() ? `<div class="instcard"><span>${t('inst.card')}</span><button class="seg on" data-a="openInstall">${t('inst.cardBtn')}</button><button class="x" data-a="instLater" aria-label="${t('inst.later')}">×</button></div>` : ''}</div>
     <button class="cta" data-a="makePlan">${t('home.generate', { min: ui.minutes })}</button>
     <button class="link skipbtn" data-a="${todaySkip ? 'unskipToday' : 'skipToday'}">${todaySkip ? t('skip.undo') : t('skip.btn')}</button>
   </main>${nav()}`;
@@ -886,6 +918,7 @@ function viewProfile() {
       <div class="rowitem"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
       ${rowSheet('openWeekCfg', t('profile.week'), `<span class="mut sm">${(S.settings.week ?? DEFAULT_WEEK).min}–${(S.settings.week ?? DEFAULT_WEEK).max}</span>`)}
       ${rowSheet('openRemind', t('profile.remind'), `<span class="${r.app || r.cal ? 'dot-ok' : 'dot-off'}"></span>`)}
+      ${isInstalled() ? '' : rowSheet('openInstall', t('inst.row'))}
       ${rowSheet('openEquipSheet', t('profile.equip'))}
       ${S.account ? rowSheet('openAccount', t('profile.account'), `<span class="mut xs acct">${esc(S.account.email)}</span>`) : ''}
       ${isAdmin() ? rowSheet('openAdmin', t('admin.row'), ui.adminPending > 0 ? `<span class="bubble">${ui.adminPending}</span>` : '') : ''}
@@ -899,7 +932,7 @@ function viewProfile() {
 
 // ---------- Administración de accesos (solo la ve quien el servidor reconoce como admin) ----------
 const isAdmin = () => Boolean(S.account?.admin) && (!S.account.estado || S.account.estado === 'Aprobado');
-const ADMIN_TABS = [['Pendiente', 'admin.tabP'], ['Aprobado', 'admin.tabA'], ['Bloqueado', 'admin.tabB']];
+const ADMIN_TABS = [['Pendiente', 'admin.tabP'], ['Aprobado', 'admin.tabA'], ['Bloqueado', 'admin.tabB'], ['Acceso', 'admin.tabC']];
 const adminState = () => (ui.admin ??= { list: null, tab: 'Pendiente', busy: null, loading: false, anim: true, pick: false });
 const adminCount = (st) => (adminState().list ?? []).filter((u) => u.estado === st).length;
 
@@ -922,6 +955,38 @@ async function adminLoad(quiet) {
   }
 }
 
+// Códigos para clientes que ya compraron: se crean aquí y se envían por WhatsApp.
+const codeLink = (c) => 'https://jnactors-bot.github.io/formd/?c=' + c;
+const codeMsg = (c) => t('admin.cMsg', { link: codeLink(c), code: c });
+function codeWaUrl(c, nota) {
+  const d = String(nota || '').trim();
+  const num = /^\d{9}$/.test(d) ? '51' + d : /^\d{10,15}$/.test(d) ? d : '';
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(codeMsg(c));
+}
+async function codesLoad(quiet) {
+  const a = adminState();
+  if (!isAdmin() || !navigator.onLine || a.cLoading) return;
+  a.cLoading = true; if (!quiet) render();
+  try { a.cods = (await api(S, 'admin_codigos_listar')).codigos ?? []; a.cErr = ''; } catch (e) { a.cErr = e.auth === false ? t('account.expired') : t('admin.fail', { m: e.message }); } finally { a.cLoading = false; render(); }
+}
+function codesHTML(a) {
+  const dis = a.cBusy ? 'disabled' : '';
+  const n = a.nuevo;
+  const state = (c) => (c.estado === 'Usado' ? t('admin.cUsed', { m: c.canjeado_por || '' }) : c.estado === 'Anulado' ? t('admin.cVoid') : t('admin.cFree'));
+  const item = (c) => `<div class="ucard${a.cBusy === c.codigo ? ' busy' : ''}"><div class="row between"><b class="brk">${esc(c.codigo)}</b>${c.estado === 'Disponible' && a.confirm !== c.codigo ? `<button class="seg bad" data-a="codeVoid" data-v="${esc(c.codigo)}" ${dis}>${t('admin.cVoidBtn')}</button>` : ''}</div>
+    <div class="xs ${c.estado === 'Disponible' ? 'acc' : 'mut'} brk">${esc(state(c))}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
+    ${a.confirm === c.codigo ? `<div class="row gap"><button class="seg grow" data-a="codeVoidNo">${t('ask.no')}</button><button class="seg grow bad" data-a="codeVoidYes" data-v="${esc(c.codigo)}" ${dis}>${t('admin.cVoidAsk')}</button></div>` : ''}</div>`;
+  return `<div class="ucard"><b>${t('admin.cTitle')}</b>
+      <input id="a-nota" class="codein" style="text-transform:none;letter-spacing:0;font:600 15px var(--body);text-align:left;padding:0 14px" type="text" maxlength="60" autocomplete="off" placeholder="${esc(t('admin.cNote'))}" aria-label="${esc(t('admin.cNote'))}" value="${esc(a.nota ?? '')}" ${dis}>
+      <button class="seg on" data-a="codeNew" ${dis}>${a.cBusy === 'new' ? '<span class="spin">⟳</span> ' + t('admin.cCreating') : t('admin.cCreate')}</button>
+      ${n ? `<div class="center"><div class="mut xs">${t('admin.cReady')}</div><b class="acc" style="display:block;white-space:nowrap;font:800 22px var(--display);letter-spacing:0">${esc(n.codigo)}</b></div>
+      <div class="row gap"><a class="seg grow on" style="text-decoration:none" href="${esc(codeWaUrl(n.codigo, n.nota))}" target="_blank" rel="noopener">${t('admin.cWa')}</a></div>
+      <div class="row gap"><button class="seg grow" data-a="codeCopy">${t('admin.cCopy')}</button>${navigator.share ? `<button class="seg grow" data-a="codeShare">${t('admin.cShare')}</button>` : ''}</div>` : ''}</div>
+    ${a.cErr ? `<p class="mut center">${esc(a.cErr)}</p>` : ''}
+    <div class="row between"><b class="xs mut">${t('admin.cRecent')}</b>${a.cLoading ? '<span class="spin">⟳</span>' : ''}</div>
+    ${a.cods == null ? `<p class="mut center">${t('admin.loading')}</p>` : a.cods.length ? a.cods.map(item).join('') : `<p class="mut center">${t('admin.cNone')}</p>`}`;
+}
+
 function adminHTML() {
   const a = adminState();
   const rows = (a.list ?? []).filter((u) => u.estado === a.tab);
@@ -941,12 +1006,39 @@ function adminHTML() {
       <div class="row gap">${u.estado === 'Pendiente' ? ok + no : u.estado === 'Aprobado' ? no : ok}</div></div>`;
   };
   return `<div class="row between"><h2>${t('admin.title')}</h2><button class="link" data-a="adminRefresh">${a.loading ? '<span class="spin">⟳</span> ' : ''}${t('admin.refresh')}</button></div>
-    <div class="row gap">${ADMIN_TABS.map(([k, key]) => `<button class="seg grow admtab ${a.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${t(key)} ${adminCount(k)}</button>`).join('')}</div>
-    <div class="adminlist col">${a.list == null ? `<p class="mut center">${t('admin.loading')}</p>` : rows.length ? rows.map(card).join('') : `<p class="mut center">${t('admin.empty')}</p>`}</div>`;
+    <div class="row gap">${ADMIN_TABS.map(([k, key]) => `<button class="seg grow admtab ${a.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${t(key)}${k === 'Acceso' ? '' : ' ' + adminCount(k)}</button>`).join('')}</div>
+    <div class="adminlist col">${a.tab === 'Acceso' ? codesHTML(a) : a.list == null ? `<p class="mut center">${t('admin.loading')}</p>` : rows.length ? rows.map(card).join('') : `<p class="mut center">${t('admin.empty')}</p>`}</div>`;
 }
 
 // ---------- Modales ----------
 function openModal(m) { ui.modal = m; render(); }
+
+// ---------- Instalar FORMD en el inicio ----------
+const installPlat = () => platformOf(navigator.userAgent, navigator.maxTouchPoints || 0);
+const installCtl = captureInstallPrompt(window, () => { if (ui.modal?.type === 'install') render(); });
+const isInstalled = () => isStandalone(window);
+// Tarjeta discreta en Hoy: 2.ª visita (o recién aprobada), nunca instalada, nunca en sesión, 14 días tras cerrarla.
+function installAskOn() {
+  if (installPlat() === 'desktop' || S.active) return false;
+  if (ui.askDay !== todayStr()) { ui.askDay = todayStr(); S.settings.installAsk = askVisit(S.settings.installAsk); persist(); }
+  return shouldAsk(S.settings.installAsk, Date.now(), isInstalled(), Boolean(S.active));
+}
+let lastEstado = S.account?.estado;
+function noteApproval() { // Pendiente -> Aprobada: el momento de mayor interés
+  const e = S.account?.estado;
+  if (lastEstado && lastEstado !== 'Aprobado' && (!e || e === 'Aprobado')) { S.settings.installAsk = askFresh(S.settings.installAsk); persist(); }
+  lastEstado = e;
+}
+function installHTML(m) {
+  const steps = installSteps(installPlat(), t);
+  if (!steps.length) return `<h2>${t('inst.title')}</h2><p class="inst-hint">${t('inst.desk')}</p>`;
+  const i = Math.max(0, Math.min(m.step ?? 0, steps.length - 1)), s = steps[i], last = i === steps.length - 1;
+  const native = installCtl.available() ? `<button class="cta" data-a="instNative">${t('inst.btn')}</button><div class="mut xs center">${t('inst.or')}</div>` : '';
+  return `<div class="col" data-a="keep" style="gap:12px"><h2 style="margin:0">${t('inst.title')}</h2>${native}
+    <div class="inst-dots" role="img" aria-label="${t('inst.step', { n: i + 1, total: steps.length })}">${steps.map((_, k) => `<i class="${k <= i ? 'on' : ''}"></i>`).join('')}</div>
+    ${s.svg}<div><h3 class="inst-title">${i + 1}/${steps.length} · ${esc(s.title)}</h3><p class="inst-hint">${esc(s.hint)}</p></div>
+    <div class="inst-nav">${i > 0 ? `<button class="seg" data-a="instPrev" aria-label="${t('inst.prev')}">‹</button>` : ''}<button class="cta" data-a="${last ? 'closeModal' : 'instNext'}">${last ? t('inst.done') : t('inst.next') + ' ›'}</button></div></div>`;
+}
 
 // ---------- Compartir entrenamiento (tarjeta PNG + hoja de compartir del sistema) ----------
 const shareText = (m) => t('share.text', { title: m.data.title, dur: m.data.dur, vol: m.data.vol, sets: m.data.sets, url: SHARE_URL });
@@ -1093,6 +1185,8 @@ function modalHTML() {
       <p class="mut xs">${personalMode(S) ? t('remind.calNote') : S.account ? t('remind.calAccount') : t('remind.needSheets')}</p>
       <label><span class="mut xs">${t('remind.time')}</span><input id="f-time" type="time" value="${esc(r.time)}" data-a="setRemindTime"></label>
       ${personalMode(S) ? `<button class="seg" data-a="calNow">${t('remind.now')}</button>` : ''}`;
+  } else if (m.type === 'install') {
+    inner = installHTML(m);
   } else if (m.type === 'sub') {
     const cur = BY_CODE.get(m.from);
     const last = lastPerformance(S.history, m.from);
@@ -1106,7 +1200,7 @@ function modalHTML() {
   }
   const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share'].includes(m.type);
   const adm = m.type === 'admin';
-  const quiet = adm || m.type === 'share';
+  const quiet = adm || m.type === 'share' || m.type === 'install';
   const still = quiet && m.shown ? ' still' : '';
   if (quiet) m.shown = true;
   return `<div class="overlay${still}" data-a="closeModal"><div class="sheet${adm ? ' adminsheet' : ''}${m.type === 'share' ? ' sharesheet' : ''}${still}"${adm ? ' data-a="keep"' : ''} role="dialog" aria-modal="true"><i class="grab"></i>${inner}
@@ -1116,6 +1210,7 @@ function modalHTML() {
 // ---------- Render ----------
 function render() {
   setLang(S.settings.lang);
+  noteApproval();
   const r = route();
   const views = { login: viewLogin, consent: viewConsent, datos: viewDatos, pending: viewPending, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
@@ -1168,6 +1263,11 @@ function postRender(r, changed) {
   }
   if (r === 'summary' && changed && !reduced()) countUp();
   if (r === 'login' || (S.account && ui.expired)) setTimeout(mountGoogleButton, 0);
+  // Código guardado desde el QR: se canjea una sola vez al llegar a «en revisión» y se borra pase lo que pase.
+  if (r === 'pending' && !ui.codeBusy && savedCode()) {
+    const c = savedCode(); clearSavedCode();
+    if (S.account?.estado === 'Pendiente') setTimeout(() => redeemCode(c, true), 0);
+  } else if (r !== 'login' && r !== 'consent' && r !== 'datos' && r !== 'pending') clearSavedCode();
 }
 
 function countUp() {
@@ -1255,6 +1355,7 @@ const A = {
     } catch (e) { toast(e.approval === false ? t('datos.fail') : (e.message || t('datos.fail'))); }
   },
   reconnect() { ui.expired = false; render(); ensureToken().then((ok) => { if (ok) refreshAccount(); else { ui.expired = true; render(); toast(t('account.expired')); } }); },
+  async redeemCode() { await redeemCode(document.getElementById('c-code')?.value ?? ui.code ?? ''); },
   async refreshAccount() {
     const before = S.account?.estado;
     await refreshAccount();
@@ -1308,8 +1409,39 @@ const A = {
   openAccount() { openModal({ type: 'account' }); },
   keep() {},
   openAdmin() { const a = adminState(); a.pick = true; a.anim = true; openModal({ type: 'admin' }); adminLoad(false); },
-  adminTab(el) { const a = adminState(); a.tab = el.dataset.v; a.anim = true; render(); },
-  adminRefresh() { adminLoad(false); },
+  adminTab(el) { const a = adminState(); a.tab = el.dataset.v; a.anim = true; render(); if (a.tab === 'Acceso' && a.cods == null) codesLoad(true); },
+  adminRefresh() { adminLoad(false); if (adminState().tab === 'Acceso') codesLoad(true); },
+  async codeNew() {
+    const a = adminState();
+    if (a.cBusy) return;
+    a.nota = (document.getElementById('a-nota')?.value ?? a.nota ?? '').trim().slice(0, 60);
+    a.cBusy = 'new'; a.cErr = ''; render();
+    try {
+      const r = await api(S, 'admin_codigo_crear', { nota: a.nota });
+      a.nuevo = { codigo: r.codigo, nota: a.nota }; a.nota = '';
+      a.cods = [{ codigo: r.codigo, estado: 'Disponible', nota: a.nuevo.nota, canjeado_por: '', fecha_canje: '' }, ...(a.cods ?? [])].slice(0, 30);
+    } catch (e) { a.cErr = e.auth === false ? t('account.expired') : t('admin.fail', { m: e.message }); }
+    a.cBusy = null; render();
+  },
+  codeVoid(el) { const a = adminState(); a.confirm = el.dataset.v; render(); },
+  codeVoidNo() { const a = adminState(); a.confirm = null; render(); },
+  async codeVoidYes(el) {
+    const a = adminState();
+    if (a.cBusy) return;
+    const code = el.dataset.v; a.confirm = null; a.cBusy = code; a.cErr = ''; render();
+    try {
+      await api(S, 'admin_codigo_anular', { codigo: code });
+      const c = (a.cods ?? []).find((x) => x.codigo === code); if (c) c.estado = 'Anulado';
+      if (a.nuevo?.codigo === code) a.nuevo = null;
+      toast(t('admin.cVoided'));
+    } catch (e) { a.cErr = e.auth === false ? t('account.expired') : t('admin.fail', { m: e.message }); }
+    a.cBusy = null; render(); codesLoad(true);
+  },
+  async codeCopy() { const n = adminState().nuevo; if (!n) return; toast(t((await copyText(codeLink(n.codigo))) ? 'admin.cCopied' : 'share.copyFail')); },
+  async codeShare() {
+    const n = adminState().nuevo; if (!n) return;
+    try { await navigator.share({ text: codeMsg(n.codigo) }); } catch (e) { if (e?.name !== 'AbortError') toast(t('share.copyFail')); }
+  },
   async adminSet(el) {
     const a = adminState();
     if (a.busy) return;
@@ -1373,6 +1505,11 @@ const A = {
   },
   openWeekCfg() { openModal({ type: 'weekcfg' }); },
   openRemind() { openModal({ type: 'remind' }); },
+  openInstall() { S.settings.installAsk = askDismiss(S.settings.installAsk, Date.now()); persist(); openModal({ type: 'install', step: 0 }); },
+  instNext() { if (ui.modal?.type === 'install') { ui.modal.step = (ui.modal.step ?? 0) + 1; render(); } },
+  instPrev() { if (ui.modal?.type === 'install') { ui.modal.step = Math.max(0, (ui.modal.step ?? 0) - 1); render(); } },
+  async instNative() { const r = await installCtl.prompt(); if (r === 'accepted') { closeModal(); toast(t('inst.done')); } },
+  instLater() { S.settings.installAsk = askDismiss(S.settings.installAsk, Date.now()); persist(); render(); },
   openEquipSheet() { openModal({ type: 'equipsheet' }); },
   openSheetsSheet() { openModal({ type: 'sheetssheet' }); },
   toggleDay(el) {
@@ -1824,6 +1961,33 @@ async function refreshAccount() {
   }
 }
 
+// Canjea el código de la toalla: si el servidor lo acepta, la cuenta queda aprobada al instante.
+function redeemErr(e) {
+  if (!navigator.onLine) return t('login.offline');
+  const m = String(e?.message ?? '');
+  if (e?.auth === false) return t('account.expired');
+  if (/^demasiados/.test(m)) return t('pending.codeMany');
+  if (/^c[oó]digo/.test(m)) return t('pending.codeBad');
+  if (/bloquead/.test(m)) return t('pending.codeBlocked');
+  return t('pending.codeFail');
+}
+
+async function redeemCode(raw, auto = false) {
+  if (ui.codeBusy) return;
+  const code = normCode(raw);
+  if (!code) { ui.code = String(raw ?? ''); if (!auto) toast(t(String(raw ?? '').trim() ? 'pending.codeBad' : 'pending.codeEmpty')); return; }
+  ui.codeBusy = true; ui.code = code; render();
+  try {
+    await api(S, 'canjear_codigo', { codigo: code });
+    clearSavedCode(); ui.code = null; ui.codeBusy = false;
+    S.account.estado = 'Aprobado'; persist(); render(); window.scrollTo(0, 0);
+    toast(t('pending.codeOk'));
+    if (S.account.datosOk) afterConsent();
+  } catch (e) {
+    ui.codeBusy = false; render(); toast(redeemErr(e));
+  }
+}
+
 // ---------- Inicio de sesión con correo + código ----------
 function loginErr(e) {
   if (!navigator.onLine) return t('login.offline');
@@ -2024,6 +2188,11 @@ $app.addEventListener('input', (e) => {
   if (k && ui.claim) ui.claim[k] = e.target.value;
   const l = e.target.dataset?.l;
   if (l === 'email') loginState().email = e.target.value;
+  if (l === 'redeem') {
+    const v = e.target.value.toUpperCase();
+    if (v !== e.target.value) e.target.value = v;
+    ui.code = v;
+  }
   if (l === 'code') {
     const v = e.target.value.replace(/\D/g, '').slice(0, 6);
     if (v !== e.target.value) e.target.value = v;
@@ -2036,6 +2205,7 @@ $app.addEventListener('submit', (e) => {
   const f = e.target.dataset?.form;
   if (f === 'sendCode') A.sendCode();
   else if (f === 'verifyCode') verifyCode();
+  else if (f === 'redeem') A.redeemCode();
 });
 // Cuenta atrás de «Reenviar código»: solo toca el botón, sin redibujar (no se pierde lo escrito).
 setInterval(() => {
@@ -2120,7 +2290,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '32';
+const APP_V = '33';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
@@ -2128,7 +2298,7 @@ async function applyUpdate() {
   } catch { /* sin caché */ }
   // El navegador puede guardar los archivos unos minutos: se vuelven a pedir saltando esa caché antes de recargar.
   try {
-    const files = ['./', 'index.html', 'app.js', 'engine.js', 'store.js', 'i18n.js', 'bodymap.js', 'anim.js', 'exmap.js', 'warmup.js', 'share.js', 'stretch.js', 'catalog.js', 'cardio.js', 'styles.css', 'config.js', 'version.json'];
+    const files = ['./', 'index.html', 'app.js', 'engine.js', 'store.js', 'i18n.js', 'bodymap.js', 'anim.js', 'exmap.js', 'warmup.js', 'share.js', 'stretch.js', 'catalog.js', 'cardio.js', 'install.js', 'install-ui.js', 'styles.css', 'config.js', 'version.json'];
     await Promise.all(files.map((f) => fetch(f, { cache: 'reload' }).catch(() => null)));
   } catch { /* sin red */ }
   location.reload();

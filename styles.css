@@ -566,3 +566,34 @@ form.col .fld input:focus { outline: none; border-color: var(--ac); }
 .cg-steps li.on b{background:var(--ac);color:#000;border-color:var(--ac)}
 .cg-steps li.done{opacity:.4;text-decoration:line-through}
 .cg-note{font-size:12px;color:#8a8a8a;line-height:1.35;text-align:center}
+
+/* Código de compra (pantalla «en revisión») */
+.pend { gap: clamp(8px, 1.6vh, 14px); }
+.pend .hero { font-size: clamp(22px, 3.6vh, 28px); }
+.codebox { width: 100%; gap: 10px; padding: 14px; background: #000; border: 1px solid var(--line); border-radius: 20px; text-align: center; }
+.codebox h2 { margin: 0; font: 700 15px/1.2 var(--display); letter-spacing: -.01em; }
+.codein { width: 100%; box-sizing: border-box; height: 52px; background: #000; color: var(--ink); border: 1px solid var(--line); border-radius: 14px; font: 700 16px var(--display); letter-spacing: .08em; text-align: center; text-transform: uppercase; }
+.codein::placeholder { color: #4a4a47; letter-spacing: .05em; }
+.codein:focus { outline: none; border-color: var(--ac); }
+.codebox .cta { height: 52px; }
+.pend .cta.ghost { height: 46px; }
+.pend .link { min-height: 36px; padding: 4px; }
+.codesaved { margin: 0; color: var(--ac); }
+
+/* ---- Instalar en el inicio ---- */
+.ill { display: block; width: 100%; height: auto; max-height: 30vh; border-radius: 16px; background: #050505; border: 1px solid var(--line); }
+.ill text { font-family: var(--body); }
+.ill .hl { fill: none; stroke: var(--ac); stroke-width: 2.2; }
+.ill .hl.pulse { stroke-width: 1.6; transform-box: fill-box; transform-origin: center; animation: ringPulse 1.7s ease-out infinite; will-change: transform, opacity; }
+@keyframes ringPulse { 0% { transform: scale(1); opacity: .95; } 100% { transform: scale(1.22); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ill .hl.pulse { animation: none; opacity: .5; } }
+.inst-step { font: 700 11px var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--mut); }
+.inst-title { margin: 0; font: 800 clamp(19px, 5.6vw, 24px)/1.15 var(--display); }
+.inst-hint { margin: 0; color: var(--mut); font-size: 15px; }
+.inst-dots { display: flex; gap: 6px; } .inst-dots i { height: 4px; flex: 1; border-radius: 2px; background: #222; transition: background .3s; } .inst-dots i.on { background: var(--ac); }
+.inst-nav { display: flex; gap: 10px; } .inst-nav .cta { flex: 1; } .inst-nav .seg { min-width: 56px; }
+.instcard { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 8px 8px 14px; border-radius: 14px; border: 1px solid #2c3a10; background: #000; color: var(--ink); font: 600 13px var(--body); }
+.instcard > span { flex: 1; }
+.instcard .seg { min-height: 34px; padding: 0 12px; font-size: 12px; }
+.instcard .x { background: none; border: 0; color: var(--mut); font-size: 18px; width: 34px; height: 34px; }
+.inst-title { min-height: 2.35em; display: flex; align-items: flex-end; } .inst-nav .seg { font-size: 22px; }
