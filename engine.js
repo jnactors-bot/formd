@@ -276,7 +276,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
     if (ex) {
       const total = budget;
       const interval = chosen === 'cardio_interval';
-      const rounds = interval ? Math.max(3, Math.floor(total / 90)) : 0; // 30 s fuerte + 60 s suave
+      const rounds = interval ? Math.max(3, Math.floor((total >= 900 ? total - 480 : total) / 90)) : 0; // 30 s fuerte + 60 s suave (con calentar 5′ y enfriar 3′ dentro del tiempo)
       blocks.push({
         type: 'exercise', code: ex.code, kind: 'cardio', sets: 1, restS: 0, rir: null,
         durationS: interval ? rounds * 90 : total, protocol: interval ? { workS: 30, easyS: 60, rounds } : null,

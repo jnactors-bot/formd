@@ -14,6 +14,7 @@ import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
 import { SHARE_URL, copyText, downloadBlob, renderShareCard, shareFile } from './share.js';
 import { warmupFor, warmupRemote } from './warmup.js';
+import { LEVELS, LEVEL_NAME, cardioSegments, describe as cardioDescribe, outline as cardioOutline, segmentAt } from './cardio.js';
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
@@ -616,23 +617,44 @@ function viewStrength(a, b) {
   </div>`;
 }
 
+const cardioLevel = () => (LEVELS.includes(S.settings.cardioLevel) ? S.settings.cardioLevel : 'beginner');
+
+// Cardio guiado: tramo actual con velocidad objetivo y sensación, cuenta atrás del tramo y el siguiente.
+function cardioPanel(a, b, el, running) {
+  const lv = cardioLevel(), L = lang();
+  const segs = cardioSegments(b.code, b.durationS, b.protocol, lv);
+  const levels = `<div class="row gap center lvl" role="group">${LEVELS.map((k) => `<button class="chip ${k === lv ? 'on' : ''}" data-a="cardioLevel" data-v="${k}">${LEVEL_NAME[k][L]}</button>`).join('')}</div>`;
+  if (!running && !el) return `<div class="cg"><div class="cg-out">${esc(cardioOutline(segs, L))}</div>${levels}<div class="mut xs">${t('cardio.hint')}</div></div>`;
+  const cur = segmentAt(segs, el), d = cardioDescribe(b.code, cur.seg, lv, L);
+  const nx = cur.next ? cardioDescribe(b.code, cur.next, lv, L) : null;
+  const hard = cur.seg.kind === 'hard';
+  return `<div class="cg ${hard ? 'hard' : ''}">
+    <div class="cg-name" data-tick="cname">${esc(d.name)}</div>
+    ${d.speed ? `<div class="cg-speed">${esc(d.speed)}</div>` : ''}
+    <div class="cg-left num-s" data-tick="cleft">${mmss(cur.left)}</div>
+    <div class="cg-rpe">${esc(d.rpe)} · ${esc(d.cue)}</div>
+    ${nx ? `<div class="cg-next">${t('cardio.next')}: ${esc(nx.name)} ${nx.speed ? '· ' + esc(nx.speed) : ''} · ${mmss(cur.next.s)}</div>` : `<div class="cg-next">${t('cardio.last')}</div>`}
+  </div>`;
+}
+
 function viewTimed(a, b) {
   const ex = BY_CODE.get(b.code);
   const tm = a.timer;
   const running = tm && tm.running;
   const el = tm ? (tm.accum + (running ? Date.now() - tm.t0 : 0)) / 1000 : 0;
+  const isCardio = b.kind === 'cardio';
   let phase = '';
-  if (b.protocol && running) {
+  if (!isCardio && b.protocol && running) {
     const cyc = b.protocol.workS + b.protocol.easyS;
     const work = el % cyc < b.protocol.workS;
     const round = Math.min(b.protocol.rounds, Math.floor(el / cyc) + 1);
     phase = `<div class="phase ${work ? 'hard' : 'easy'}" data-tick="phase">${work ? t('session.work') : t('session.easy')} · ${round}/${b.protocol.rounds}</div>`;
   }
-  const isCardio = b.kind === 'cardio';
   return `<div class="col grow center-col">
     <div class="row gap center"><h1 class="ex">${esc(exName(ex))}</h1><button class="icon-btn" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}">${ICON.play}</button></div>
     <div class="mut">${isCardio ? Math.round(b.durationS / 60) + ' ' + t('common.min') : t('session.set', { n: a.setNo, total: b.sets }) + ' · ' + b.durationS + ' s'}</div>
     <div class="big" data-tick="stopwatch">${mmss(el)}</div>${phase}
+    ${isCardio ? cardioPanel(a, b, el, running) : ''}
     <button class="cta" data-a="${running ? 'timerStop' : 'timerStart'}">${running ? t('session.stop') : t('session.start')}</button>
     ${isCardio ? `<label class="dist"><span class="mut xs">${t('session.distance')}</span><input id="f-d" type="number" inputmode="decimal" step="0.1" min="0"></label>
       <button class="seg" data-a="endBlock">${t('session.endBlock')}</button>` : `<button class="link" data-a="skipExercise">${t('common.skip')}</button>`}
@@ -1473,6 +1495,7 @@ const A = {
   },
   setRestOverride(el) { S.settings.restOverride = el.value ? Number(el.value) : null; persist(); render(); bgSync(); },
   skipRest() { S.active.restEnd = null; restTimer(0); persist(); render(); },
+  cardioLevel(el) { S.settings.cardioLevel = el.dataset.v; persist(); render(); },
   timerStart() {
     const a = S.active; a.timer = { running: true, t0: Date.now(), accum: a.timer?.accum ?? 0, lastPhase: 'work' };
     beep(660, 120); persist(); render();
@@ -2044,7 +2067,21 @@ setInterval(() => {
     const secs = (a.timer.accum + Date.now() - a.timer.t0) / 1000;
     const sw = $app.querySelector('[data-tick="stopwatch"]');
     if (sw) sw.textContent = mmss(secs);
-    if (b.protocol) {
+    if (b.kind === 'cardio') {
+      const segs = cardioSegments(b.code, b.durationS, b.protocol, cardioLevel());
+      const cur = segmentAt(segs, secs);
+      const key = cur.i + (cur.done ? 'd' : '');
+      if (key !== a.timer.lastSeg) {
+        const first = a.timer.lastSeg === undefined;
+        a.timer.lastSeg = key;
+        if (!first) { beep(cur.seg.kind === 'hard' ? 990 : 660, 250); buzz(cur.seg.kind === 'hard' ? [150, 80, 150] : 120); }
+        render();
+      } else {
+        const cl = $app.querySelector('[data-tick="cleft"]');
+        if (cl) cl.textContent = mmss(cur.left);
+        if (cur.left > 0 && cur.left <= 3) beep(520, 60);
+      }
+    } else if (b.protocol) {
       const cyc = b.protocol.workS + b.protocol.easyS;
       const work = secs % cyc < b.protocol.workS;
       const phase = work ? 'work' : 'easy';
@@ -2072,7 +2109,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '30';
+const APP_V = '31';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
@@ -2080,7 +2117,7 @@ async function applyUpdate() {
   } catch { /* sin caché */ }
   // El navegador puede guardar los archivos unos minutos: se vuelven a pedir saltando esa caché antes de recargar.
   try {
-    const files = ['./', 'index.html', 'app.js', 'engine.js', 'store.js', 'i18n.js', 'bodymap.js', 'anim.js', 'exmap.js', 'warmup.js', 'share.js', 'stretch.js', 'catalog.js', 'styles.css', 'config.js', 'version.json'];
+    const files = ['./', 'index.html', 'app.js', 'engine.js', 'store.js', 'i18n.js', 'bodymap.js', 'anim.js', 'exmap.js', 'warmup.js', 'share.js', 'stretch.js', 'catalog.js', 'cardio.js', 'styles.css', 'config.js', 'version.json'];
     await Promise.all(files.map((f) => fetch(f, { cache: 'reload' }).catch(() => null)));
   } catch { /* sin red */ }
   location.reload();
