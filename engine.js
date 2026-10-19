@@ -11,7 +11,14 @@ export const EQUIPMENT_PRESETS = {
   gym: CATALOG.equipment.map((e) => e.code),
   dumbbells: ['dumbbell', 'bodyweight', 'kettlebell'],
   bodyweight: ['bodyweight'],
+  bands: ['bodyweight', 'bands'], // casa con bandas elásticas
 };
+
+// Máquinas específicas (prensa, hack, pantorrilla…). Los guardados antiguos con «machine» se migran en app.js (equipV).
+export const MACHINE_FAMILY = new Set(CATALOG.machineFamily ?? []);
+/** ¿Hay este equipo? El peso corporal siempre está. */
+export const hasEquip = (avail, code) => code === 'bodyweight' || avail.has(code);
+const asSet = (a) => (a instanceof Set ? a : new Set(a));
 
 // ---------- Constantes de tiempo (segundos) ----------
 const WORK_S = 40; // tiempo bajo tensión + preparación de una serie
@@ -19,53 +26,80 @@ const TRANSITION_S = 60; // cambiar de máquina / ajustar peso
 
 // ---------- Plantillas de sesión ----------
 // Cada slot lista ejercicios por orden de preferencia; gana el primero con equipo disponible.
+// Al final de cada lista hay versiones SIN máquina (peso corporal, mancuernas, bandas) y, si aun así no hay
+// nada, pickExercise cae al ejercicio de peso corporal más parecido: nunca queda un hueco.
+const L = {
+  pressFlat: ['bench_press_barbell', 'db_bench_press', 'smith_bench_press', 'machine_chest_press', 'cable_chest_press', 'floor_press_db', 'kb_floor_press', 'band_chest_press', 'suspension_pushup', 'pushup', 'wide_pushup'],
+  pressIncl: ['incline_db_press', 'incline_bench_barbell', 'incline_smith_press', 'incline_machine_press', 'cable_fly_low_to_high', 'incline_db_fly', 'feet_elevated_pushup', 'chest_dips', 'incline_pushup', 'wide_pushup'],
+  pressOver: ['db_shoulder_press', 'overhead_press_barbell', 'machine_shoulder_press', 'smith_shoulder_press', 'arnold_press', 'kb_press', 'band_shoulder_press', 'kb_thruster', 'closegrip_pushup', 'feet_elevated_pushup'],
+  delts: ['lateral_raise_db', 'cable_lateral_raise', 'seated_lateral_raise', 'band_lateral_raise', 'band_upright_row', 'scaption', 'upright_row_db', 'upright_row_barbell', 'front_raise_db', 'incline_pushup'],
+  triceps: ['overhead_triceps_ext_cable', 'triceps_pushdown_cable', 'rope_pushdown', 'skullcrusher_ez', 'ez_triceps_ext', 'db_overhead_ext', 'lying_db_ext', 'machine_triceps_ext', 'dip_machine', 'db_kickback', 'band_overhead_ext', 'band_skullcrusher', 'bench_dips', 'tricep_dips', 'closegrip_pushup', 'body_tricep_press'],
+  chestIso: ['cable_fly_high_to_low', 'pec_deck', 'db_fly', 'band_chest_fly', 'chest_dips', 'decline_db_press', 'decline_machine_press', 'med_ball_chest_pass', 'wide_pushup', 'incline_pushup', 'pushup'],
+  vPull: ['pullup', 'lat_pulldown_wide', 'chinup', 'lat_pulldown_neutral', 'vbar_pulldown', 'lat_pulldown_underhand', 'band_assisted_pullup', 'wide_pullup', 'neutral_pullup', 'inverted_row', 'suspension_row'],
+  hPull: ['barbell_row', 'seated_cable_row', 'chest_supported_row', 'tbar_row', 'db_row_one_arm', 'db_row_two', 'incline_db_row', 'smith_row', 'one_arm_cable_row', 'machine_iso_row', 'kb_row', 'reverse_grip_row', 'suspension_row', 'bodyweight_mid_row', 'inverted_row'],
+  pull3: ['db_row_one_arm', 'chest_supported_row', 'lat_pulldown_neutral', 'straight_arm_pulldown', 'one_arm_pulldown', 'rope_straight_arm', 'kb_row', 'db_row_two', 'suspension_row', 'inverted_row', 'scapular_pullup', 'hyperextension_45', 'floor_back_extension'],
+  rear: ['face_pull', 'rear_delt_fly_db', 'reverse_pec_deck', 'cable_rear_delt_fly', 'band_pull_apart', 'band_rear_fly', 'band_external_rotation', 'lying_rear_delt', 'floor_back_extension', 'hyperextension_45'],
+  biceps: ['incline_db_curl', 'barbell_curl', 'db_curl_alternating', 'cable_curl', 'ez_curl', 'preacher_curl', 'machine_curl', 'concentration_curl', 'spider_curl', 'high_cable_curl', 'chinup', 'band_assisted_pullup'],
+  biceps2: ['hammer_curl', 'preacher_curl', 'rope_hammer_curl', 'cross_body_hammer', 'zottman_curl', 'db_shrug', 'barbell_shrug', 'cable_shrug', 'machine_shrug', 'reverse_curl', 'wrist_curl', 'barbell_wrist_curl'],
+  squat: ['back_squat', 'smith_squat', 'leg_press', 'goblet_squat', 'hack_squat', 'front_squat', 'db_squat', 'kb_front_squat', 'db_box_squat', 'band_squat', 'bodyweight_squat'],
+  hinge: ['romanian_deadlift', 'hip_thrust_barbell', 'db_rdl', 'smith_rdl', 'kb_single_leg_rdl', 'good_morning', 'barbell_glute_bridge', 'cable_pull_through', 'back_extension', 'glute_bridge', 'single_leg_bridge', 'band_glute_bridge'],
+  lunge: ['leg_press', 'bulgarian_split_squat', 'walking_lunge_db', 'step_up_db', 'hack_squat', 'db_lunge', 'db_split_squat', 'smith_split_squat', 'barbell_lunge', 'db_rear_lunge', 'bw_walking_lunge', 'bw_step_up', 'jump_squat'],
+  curl: ['lying_leg_curl', 'seated_leg_curl', 'standing_leg_curl', 'swiss_leg_curl', 'slider_leg_curl', 'band_leg_curl', 'natural_ghr', 'single_leg_bridge', 'glute_bridge'],
+  quadIso: ['leg_extension', 'narrow_hack_squat', 'narrow_leg_press', 'lying_machine_squat', 'db_squat', 'jump_squat', 'bodyweight_squat'],
+  calf1: ['standing_calf_raise', 'seated_calf_raise', 'leg_press_calf', 'smith_calf_raise', 'calf_press_machine', 'barbell_calf_raise', 'db_calf_raise', 'single_leg_calf_step', 'bw_calf_raise'],
+  calf2: ['seated_calf_raise', 'leg_press_calf', 'calf_press_machine', 'seated_db_calf', 'donkey_calf_raise', 'rocking_calf_raise', 'band_calf_raise', 'db_calf_raise', 'single_leg_calf_step', 'bw_calf_raise', 'ankle_hops'],
+  core: ['cable_crunch', 'hanging_leg_raise', 'dead_bug', 'russian_twist', 'machine_crunch', 'reverse_crunch', 'crunch', 'plank'],
+  core2: ['plank', 'dead_bug', 'cable_crunch', 'hanging_knee_raise', 'reverse_crunch', 'crunch', 'side_plank'],
+};
 const SLOTS = {
   push: [
-    { role: 'compound', pick: ['bench_press_barbell', 'db_bench_press', 'smith_bench_press', 'machine_chest_press', 'pushup'] },
-    { role: 'compound', pick: ['incline_db_press', 'incline_bench_barbell', 'cable_fly_low_to_high', 'chest_dips'] },
-    { role: 'compound', pick: ['db_shoulder_press', 'overhead_press_barbell', 'machine_shoulder_press'] },
-    { role: 'accessory', pick: ['lateral_raise_db', 'cable_lateral_raise'] },
-    { role: 'accessory', pick: ['overhead_triceps_ext_cable', 'triceps_pushdown_cable', 'skullcrusher_ez', 'bench_dips'] },
-    { role: 'accessory', pick: ['cable_fly_high_to_low', 'pec_deck', 'chest_dips'] },
+    { role: 'compound', pick: L.pressFlat },
+    { role: 'compound', pick: L.pressIncl },
+    { role: 'compound', pick: L.pressOver },
+    { role: 'accessory', pick: L.delts },
+    { role: 'accessory', pick: L.triceps },
+    { role: 'accessory', pick: L.chestIso },
   ],
   pull: [
-    { role: 'compound', pick: ['pullup', 'lat_pulldown_wide', 'chinup', 'lat_pulldown_neutral'] },
-    { role: 'compound', pick: ['barbell_row', 'seated_cable_row', 'chest_supported_row', 'tbar_row', 'db_row_one_arm'] },
-    { role: 'compound', pick: ['db_row_one_arm', 'chest_supported_row', 'lat_pulldown_neutral', 'straight_arm_pulldown'] },
-    { role: 'accessory', pick: ['face_pull', 'rear_delt_fly_db'] },
-    { role: 'accessory', pick: ['incline_db_curl', 'barbell_curl', 'db_curl_alternating', 'cable_curl'] },
-    { role: 'accessory', pick: ['hammer_curl', 'preacher_curl', 'db_shrug'] },
+    { role: 'compound', pick: L.vPull },
+    { role: 'compound', pick: L.hPull },
+    { role: 'compound', pick: L.pull3 },
+    { role: 'accessory', pick: L.rear },
+    { role: 'accessory', pick: L.biceps },
+    { role: 'accessory', pick: L.biceps2 },
   ],
   legs: [
-    { role: 'compound', pick: ['back_squat', 'smith_squat', 'leg_press', 'goblet_squat', 'hack_squat'] },
-    { role: 'compound', pick: ['romanian_deadlift', 'hip_thrust_barbell', 'back_extension', 'glute_bridge'] },
-    { role: 'compound', pick: ['leg_press', 'bulgarian_split_squat', 'walking_lunge_db', 'step_up_db', 'hack_squat'] },
-    { role: 'accessory', pick: ['lying_leg_curl', 'seated_leg_curl'] },
-    { role: 'accessory', pick: ['leg_extension'] },
-    { role: 'accessory', pick: ['standing_calf_raise', 'seated_calf_raise'] },
-    { role: 'accessory', pick: ['cable_crunch', 'hanging_leg_raise', 'dead_bug', 'russian_twist'] },
+    { role: 'compound', pick: L.squat },
+    { role: 'compound', pick: L.hinge },
+    { role: 'compound', pick: L.lunge },
+    { role: 'accessory', pick: L.curl },
+    { role: 'accessory', pick: L.calf1 },
+    { role: 'accessory', pick: L.quadIso },
+    { role: 'accessory', pick: L.calf2 },
+    { role: 'accessory', pick: L.core },
   ],
   // Híbrido: sesiones de fuerza más cortas y generales.
   upper: [
-    { role: 'compound', pick: ['bench_press_barbell', 'db_bench_press', 'machine_chest_press', 'pushup'] },
-    { role: 'compound', pick: ['pullup', 'lat_pulldown_wide', 'db_row_one_arm', 'barbell_row'] },
-    { role: 'compound', pick: ['db_shoulder_press', 'overhead_press_barbell', 'machine_shoulder_press'] },
-    { role: 'compound', pick: ['seated_cable_row', 'db_row_one_arm', 'chest_supported_row'] },
-    { role: 'accessory', pick: ['triceps_pushdown_cable', 'bench_dips'] },
-    { role: 'accessory', pick: ['db_curl_alternating', 'cable_curl', 'barbell_curl'] },
+    { role: 'compound', pick: L.pressFlat },
+    { role: 'compound', pick: L.vPull },
+    { role: 'compound', pick: L.pressOver },
+    { role: 'compound', pick: L.hPull },
+    { role: 'accessory', pick: L.triceps },
+    { role: 'accessory', pick: L.biceps },
   ],
   lower: [
-    { role: 'compound', pick: ['back_squat', 'goblet_squat', 'leg_press', 'smith_squat'] },
-    { role: 'compound', pick: ['romanian_deadlift', 'hip_thrust_barbell', 'glute_bridge'] },
-    { role: 'compound', pick: ['bulgarian_split_squat', 'walking_lunge_db', 'step_up_db'] },
-    { role: 'accessory', pick: ['lying_leg_curl', 'seated_leg_curl'] },
-    { role: 'accessory', pick: ['standing_calf_raise', 'seated_calf_raise'] },
-    { role: 'accessory', pick: ['plank', 'dead_bug', 'cable_crunch'] },
+    { role: 'compound', pick: L.squat },
+    { role: 'compound', pick: L.hinge },
+    { role: 'compound', pick: L.lunge },
+    { role: 'accessory', pick: L.curl },
+    { role: 'accessory', pick: L.calf1 },
+    { role: 'accessory', pick: L.calf2 },
+    { role: 'accessory', pick: L.core2 },
   ],
 };
 
-const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'outdoor_run', 'incline_walk'];
-const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'jump_rope'];
+const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'treadmill_walk', 'incline_walk', 'outdoor_run'];
+const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
 
 // Cuatro modos; cada uno se apoya en la rotación y el catálogo de uno base.
 export const MODES = ['muscle', 'strength', 'hybrid', 'fatloss'];
@@ -136,14 +170,25 @@ export function isPR(history, code, weightKg, reps) {
 }
 
 function pickExercise(slot, available, used, mode) {
+  const avail = asSet(available);
+  const base = baseMode(mode);
   for (const code of slot.pick) {
     const ex = BY_CODE.get(code);
     if (!ex || used.has(code)) continue;
-    if (!available.has(ex.equipment)) continue;
-    if (!ex.modes.includes(baseMode(mode))) continue;
+    if (!hasEquip(avail, ex.equipment)) continue;
+    if (!ex.modes.includes(base)) continue;
     return ex;
   }
-  return null;
+  // Respaldo: el ejercicio de peso corporal más parecido al preferido del slot (nunca deja un hueco).
+  const ref = BY_CODE.get(slot.pick[0]);
+  if (!ref) return null;
+  let best = null, bestScore = 0;
+  for (const e of CATALOG.exercises) {
+    if (used.has(e.code) || e.kind !== ref.kind || !e.bodyweight || !e.modes.includes(base) || !hasEquip(avail, e.equipment)) continue;
+    const sc = regionSimilarity(ref, e);
+    if (sc > bestScore) { best = e; bestScore = sc; }
+  }
+  return bestScore >= 0.3 ? best : null;
 }
 
 function exerciseSeconds(sets, restS, kind, durationS) {
@@ -227,7 +272,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
 
   if (chosen === 'cardio_easy' || chosen === 'cardio_interval') {
     const list = chosen === 'cardio_easy' ? CARDIO_EASY : CARDIO_HARD;
-    const ex = list.map((c) => BY_CODE.get(c)).find((e) => e && avail.has(e.equipment));
+    const ex = list.map((c) => BY_CODE.get(c)).find((e) => e && hasEquip(avail, e.equipment));
     if (ex) {
       const total = budget;
       const interval = chosen === 'cardio_interval';
@@ -396,22 +441,55 @@ function loadScore(e) {
   return 1;
 }
 
-export function suggestSubstitutes({ current, available, blocked = new Set(), doneToday = new Set(), minutesLeft = 30, history = [] }) {
+const primaryZones = (e) => Object.entries(e.weights).filter(([, w]) => w >= 0.7).map(([r]) => r);
+
+/**
+ * Hasta `limit` (6) alternativas que trabajan la(s) misma(s) zona(s) principal(es), por afinidad de zonas.
+ * Primero las que usan equipo que el usuario tiene (el peso corporal siempre cuenta); si faltan, se completan con
+ * opciones que necesitan otro equipo, marcadas con `needs` (código del equipo). El equipo `blocked` (máquina ocupada)
+ * se excluye por completo. Devuelve [] solo si de verdad no existe ninguna alternativa en el catálogo.
+ */
+export function suggestSubstitutes({ current, available, blocked = new Set(), doneToday = new Set(), minutesLeft = 30, history = [], limit = 6 }) {
   const cur = typeof current === 'string' ? BY_CODE.get(current) : current;
-  const avail = available instanceof Set ? available : new Set(available);
-  const pool = CATALOG.exercises.filter((e) =>
-    e.code !== cur.code && e.kind === cur.kind &&
-    avail.has(e.equipment) && !blocked.has(e.equipment) && !doneToday.has(e.code) &&
-    Object.entries(e.weights).some(([r, w]) => w >= 0.7 && (cur.weights[r] ?? 0) > 0));
+  const avail = asSet(available);
+  const blockedSet = blocked instanceof Set ? blocked : new Set(blocked);
+  blockedSet.delete('bodyweight');
+  const prim = primaryZones(cur);
+  const isBlocked = (e) => blockedSet.has(e.equipment) && !(e.equipment === 'machine' && e.pattern !== cur.pattern);
+  const compatKind = (e) => e.kind === cur.kind || (cur.kind === 'timed' && e.kind === 'strength') || (cur.kind === 'strength' && e.kind === 'timed' && (e.weights.abs_upper >= 0.7 || e.weights.abs_lower >= 0.7));
+  const base = CATALOG.exercises.filter((e) =>
+    e.code !== cur.code && compatKind(e) && !isBlocked(e) && !doneToday.has(e.code) &&
+    e.modes.some((m) => cur.modes.includes(m)));
+  const share = (min) => base.filter((e) => prim.some((r) => (e.weights[r] ?? 0) >= min));
+  let pool = share(0.7);
+  if (pool.length < 4) pool = share(0.5);
+  const time = minutesLeft >= 10 ? 1 : 0.5;
   const scored = pool.map((e) => {
-    const time = minutesLeft >= 10 ? 1 : 0.5;
+    const ok = hasEquip(avail, e.equipment);
     const pref = setsOfExercise(history, e.code).length ? 1 : 0;
-    const score = 0.45 * regionSimilarity(cur, e) + 0.25 * patternScore(cur, e) + 0.15 * loadScore(e) + 0.1 * time + 0.05 * pref;
-    return { exercise: e, score, reason: reasonFor(cur, e) };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  const good = scored.filter((s) => s.score >= 0.6).slice(0, 3);
-  return good.length ? good : scored.slice(0, 1).map((s) => ({ ...s, weak: true }));
+    const score = 0.5 * regionSimilarity(cur, e) + 0.25 * patternScore(cur, e) + 0.1 * loadScore(e) + 0.1 * time + 0.05 * pref;
+    return { exercise: e, score, reason: reasonFor(cur, e), needs: ok ? null : e.equipment };
+  }).sort((a, b) => b.score - a.score);
+  const have = scored.filter((x) => !x.needs && x.score >= 0.45);
+  const picked = [];
+  const take = (x) => { if (x && picked.length < limit && !picked.includes(x)) picked.push(x); };
+  // 1) las 4 mejores con tu equipo; 2) siempre una o dos de peso corporal; 3) el resto con tu equipo; 4) las que necesitan otro equipo.
+  have.slice(0, Math.max(1, limit - 2)).forEach(take);
+  have.filter((x) => x.exercise.bodyweight).slice(0, 2).forEach(take);
+  have.forEach(take);
+  if (picked.length < limit) {
+    const rest = scored.filter((x) => x.needs && x.score >= 0.45);
+    // distintos equipos primero, para que el usuario vea opciones variadas
+    const seen = new Set();
+    rest.filter((x) => (seen.has(x.needs) ? false : seen.add(x.needs))).forEach(take);
+    rest.forEach(take);
+  }
+  if (!picked.length && scored.length) {
+    const weak = scored.filter((x) => !x.needs)[0] ?? scored[0];
+    picked.push({ ...weak, weak: true });
+  }
+  picked.sort((a, b) => (a.needs ? 1 : 0) - (b.needs ? 1 : 0) || b.score - a.score);
+  return picked;
 }
 
 function reasonFor(cur, e) {
@@ -422,7 +500,7 @@ function reasonFor(cur, e) {
 
 export function suggestedWeightKg(cur, sub, lastKg) {
   if (!lastKg) return 0;
-  if (sub.bodyweight) return 0;
+  if (sub.bodyweight || sub.equipment === 'bands' || sub.equipment === 'suspension' || sub.equipment === 'swiss_ball') return 0;
   const factor = sub.equipment === 'dumbbell' && cur.equipment !== 'dumbbell' ? 0.35
     : sub.equipment === 'smith' ? 0.9
     : sub.equipment === 'barbell' && cur.equipment === 'dumbbell' ? 2.5

@@ -522,3 +522,23 @@ form.col .fld input:focus { outline: none; border-color: var(--ac); }
 .histlist { gap: 2px; max-height: 50vh; overflow-y: auto; }
 .histlist .setrow { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .col.gap { gap: 6px; }
+
+/* ---- Compartir entrenamiento ---- */
+.sumbtns { align-items: stretch; flex: none; } .sumbtns .cta { width: auto; flex: 1 1 0; } .sumbtns .shbtn { flex: 0 0 auto; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.shbtn svg { width: 20px; height: 20px; }
+.sharesheet { gap: 10px; max-height: 96vh; overflow: hidden; }
+.sharesheet h2 { margin: 0; font-size: 18px; }
+.shprev { align-self: center; background: #000; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: grid; place-items: center; height: min(38vh, 340px); aspect-ratio: 9 / 16; }
+.shprev.post { aspect-ratio: 4 / 5; }
+.shprev img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.shload { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.sharesheet .cta { height: 50px; } .sharesheet .cta.shsm { flex: 1 1 0; width: auto; height: 46px; font-size: 13px; }
+.shmsg { margin: 0; min-height: 2.4em; }
+.icon-btn[data-a="shareSession"] svg { width: 22px; height: 22px; }
+
+/* Estiramientos según músculos */
+.warm-tgt { align-self: center; }
+.warm-side { text-align: center; margin-top: -4px; }
+.warm .row.between { align-items: flex-start; }
+.warm { gap: 8px; }
+@media (max-height: 700px) { .warm .vid { max-height: 30dvh; } .warm-t { font-size: 30px; } }

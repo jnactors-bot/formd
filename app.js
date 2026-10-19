@@ -3,7 +3,7 @@
 // respuesta al toque (no al soltar), vibración suave y regreso disponible en todas las pantallas.
 import { CATALOG } from './catalog.js';
 import {
-  BY_CODE, EQUIPMENT_PRESETS, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
+  BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
   REST_OPTIONS, bumpRestAdj, effectiveRest, plannedSecondsWith, PERIOD_DAYS, MUSCLE_GROUPS, mondayOf, periodBuckets, regionSetsByDay, sessionExerciseCounts, setsByMuscleGroup, topExercises,
@@ -12,7 +12,9 @@ import {
 import { applyFill, bodySVG, loadBody } from './bodymap.js';
 import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
-import { cooldownFor, warmupFor, warmupRemote } from './warmup.js';
+import { SHARE_URL, copyText, downloadBlob, renderShareCard, shareFile } from './share.js';
+import { warmupFor, warmupRemote } from './warmup.js';
+import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
 
@@ -49,7 +51,14 @@ const pad = (n) => String(n).padStart(2, '0');
 const localISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const persist = () => { if (!save(S)) toast(lang() === 'en' ? 'Storage full or blocked' : 'Almacenamiento lleno o bloqueado'); };
 const splitTitleEs = (split) => DICT.es['splitShort.' + split] ?? split;
-const available = () => new Set(S.settings.equipment);
+// Guardados antiguos: quien tenía «machine» conserva las máquinas específicas (prensa, hack, pantorrilla…), una sola vez.
+const migrateEquip = () => {
+  const st = S.settings;
+  if (st.equipV === 2 || !Array.isArray(st.equipment)) return;
+  st.equipV = 2;
+  if (st.equipment.includes('machine')) for (const c of MACHINE_FAMILY) if (!st.equipment.includes(c)) st.equipment.push(c);
+};
+const available = () => { migrateEquip(); return new Set(S.settings.equipment); };
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 // Sin historial, el peso arranca en un valor típico de principiante para no empezar desde 0.
 const startKg = (ex) => {
@@ -65,6 +74,7 @@ const splitName = (split) => t('splitShort.' + split);
 const primaryRegionsOf = (ex) => Object.entries(ex.weights).filter(([, w]) => w >= 0.7).map(([r]) => r);
 
 const ICON = {
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7.5 7.5L12 3l4.5 4.5M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
@@ -293,7 +303,7 @@ function equipChecks() {
 
 function presetButtons() {
   const same = (arr) => arr.length === S.settings.equipment.length && arr.every((c) => S.settings.equipment.includes(c));
-  return ['gym', 'dumbbells', 'bodyweight'].map((p) =>
+  return ['gym', 'dumbbells', 'bodyweight', 'bands'].map((p) =>
     `<button class="seg ${same(EQUIPMENT_PRESETS[p]) ? 'on' : ''}" data-a="preset" data-v="${p}">${t('equip.' + p)}</button>`).join('');
 }
 
@@ -306,7 +316,7 @@ function viewEquip() {
     <h1 class="hero">${t('equip.title2')}</h1>
     <div class="col gap">${presetButtons()}</div>
     <div class="card row between"><span>${t('equip.units')}</span>${unitToggle()}</div>
-    <details class="more"><summary>${t('equip.customize')}</summary><div class="col mt">${equipChecks()}</div></details>
+    <button class="seg" data-a="openEquipSheet">${t('equip.customize')} · ${S.settings.equipment.length}/${CATALOG.equipment.length}</button>
     <div class="grow"></div>
     <button class="cta" data-a="confirmEquip">${t('common.continue')}</button>
   </main>`;
@@ -522,7 +532,7 @@ function viewIntro(b) {
   </div>`;
 }
 
-function warmMoves(a, b, cd) { return cd ? cooldownFor() : warmupFor(a.split || a.plan?.split, b.minutes); }
+function warmMoves(a, b, cd) { return cd ? cooldownFor(a.plan, a.sets, b.minutes) : warmupFor(a.split || a.plan?.split, b.minutes); }
 
 function viewWarmup(a, b, cd) {
   const list = warmMoves(a, b, cd);
@@ -530,13 +540,15 @@ function viewWarmup(a, b, cd) {
   const w = list[i];
   if (!a.warmT0) a.warmT0 = Date.now();
   const left = Math.max(0, w.secs - Math.floor((Date.now() - a.warmT0) / 1000));
-  const img = (n, cls) => `<img ${cls} src="ex/w_${w.key}_${n}.jpg" data-rem="${warmupRemote(w, n)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
+  const img = (n, cls) => `<img ${cls} src="ex/w_${cd ? 'st_' : ''}${w.key}_${n}.jpg" data-rem="${warmupRemote(w, n)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
   const dots = list.map((_, k) => `<i class="${k < i ? 'on' : k === i ? 'cur' : ''}"></i>`).join('');
   const last = i === list.length - 1;
+  const tgt = cd ? `<span class="pill lv-A warm-tgt">${esc(regionShort(targetRegion(w, regionLoad(a.plan, a.sets))))}</span>` : '';
+  const side = cd && w.side ? `<div class="mut xs warm-side">${t('warm.eachSide')} · ${Math.round(w.secs / 2)} s</div>` : '';
   return `<div class="col grow warm">
-    <div><div class="kicker">${b.minutes} ${t('common.min')} · ${t('warm.of', { n: i + 1, total: list.length })}</div><h1 class="ex">${cd ? t('plan.cooldown') : t('plan.warmup')}</h1></div>
+    <div class="row between"><div><div class="kicker">${b.minutes} ${t('common.min')} · ${t('warm.of', { n: i + 1, total: list.length })}</div><h1 class="ex">${cd ? t('plan.cooldown') : t('plan.warmup')}</h1></div>${cd ? `<button class="link tiny" data-a="stretchWhy" aria-label="${t('warm.whyBtn')}">ⓘ</button>` : ''}</div>
     <div class="vid" aria-hidden="true">${img(0, '')}${img(1, 'class="b"')}</div>
-    <div class="warm-name">${esc(w[lang()])}</div>
+    <div class="warm-name">${esc(w[lang()])}</div>${tgt}${side}
     <p class="mut sm warm-cue">${esc(w.cue[lang()])}</p>
     <div class="warm-t num-s" data-tick="warm">${mmss(left)}</div>
     <div class="warm-dots">${dots}</div>
@@ -645,7 +657,7 @@ function viewSummary() {
     <div class="row gap stars" role="group" aria-label="${t('summary.rateShort')}">${[1, 2, 3, 4, 5].map((n) => `<button class="star ${ui.rating >= n ? 'on' : ''}" data-a="rate" data-v="${n}" aria-label="${n}">★</button>`).join('')}</div>
     <details class="more"><summary>${t('summary.fact')}</summary><p class="mt">${esc(fact[lang()])}</p><p class="mut xs mt">${t('evidence.level', { l: fact.level })} · ${t('evidence.noCite')}</p></details>
     <div class="grow"></div>
-    <button class="cta" data-a="saveSummary">${t('summary.save')}</button>
+    <div class="row gap sumbtns"><button class="cta ghost shbtn" data-a="shareSummary">${ICON.share}<span>${t('share.btn')}</span></button><button class="cta" data-a="saveSummary">${t('summary.save')}</button></div>
   </main>`;
 }
 
@@ -690,7 +702,7 @@ function sessionCard(s) {
   const sum = cnt.length ? `<ul class="exsum">${cnt.slice(0, 3).map((c) => `<li>${line(c)}</li>`).join('')}${cnt.length > 3 ? `<li class="mut">${t('history.more', { n: cnt.length - 3 })}</li>` : ''}</ul>` : '';
   return `<details class="card sess" data-sid="${esc(s.id)}" ${ui.histOpen === s.id ? 'open' : ''}><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
     <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + s.prs + ' PR' : ''}</div>${sum}</div>
-    <div class="col gap"><button class="icon-btn" data-a="openHistEdit" data-s="${esc(s.id)}" aria-label="${t('history.editSet')}"><i class="pen">✎</i></button><button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></div></summary>
+    <div class="col gap"><button class="icon-btn" data-a="shareSession" data-s="${esc(s.id)}" aria-label="${t('share.btn')}">${ICON.share}</button><button class="icon-btn" data-a="openHistEdit" data-s="${esc(s.id)}" aria-label="${t('history.editSet')}"><i class="pen">✎</i></button><button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></div></summary>
     <ul class="list">${det}</ul></details>`;
 }
 
@@ -902,8 +914,35 @@ function adminHTML() {
 
 // ---------- Modales ----------
 function openModal(m) { ui.modal = m; render(); }
+
+// ---------- Compartir entrenamiento (tarjeta PNG + hoja de compartir del sistema) ----------
+const shareText = (m) => t('share.text', { title: m.data.title, dur: m.data.dur, vol: m.data.vol, sets: m.data.sets, url: SHARE_URL });
+function openShare(d) {
+  const best = new Map();
+  for (const x of d.series) { const ex = BY_CODE.get(x.ejercicio_code); if (!ex || ex.kind !== 'strength') continue; const b = best.get(ex.code); if (!b || (x.peso_kg || 0) > b.w) best.set(ex.code, { ex, w: x.peso_kg || 0, r: x.reps }); }
+  const top = [...best.values()].sort((a, b) => b.w * b.r - a.w * a.r).slice(0, 3).map((b) => ({ name: exName(b.ex), best: `${fmtW(b.w)} × ${b.r}` }));
+  const data = { title: d.title, dur: `${Math.max(1, Math.round(d.seconds / 60))} ${t('common.min')}`, vol: fmtW(d.volume), sets: String(d.sets), fill: d.fill, top, sex: S.settings.sex ?? 'male',
+    dateLabel: fmtDate(d.fecha, { day: 'numeric', month: 'long', year: 'numeric' }), fecha: d.fecha };
+  openModal({ type: 'share', data, format: 'story', url: null, blob: null, err: false, msg: '', filename: `formd-${d.fecha}.png` });
+  buildShare();
+}
+async function buildShare() {
+  const m = ui.modal;
+  if (m?.type !== 'share') return;
+  revokeShare(); m.blob = null; m.err = false; m.msg = ''; render();
+  const d = m.data, fmt = m.format;
+  try {
+    const blob = await renderShareCard({ title: d.title, dateLabel: d.dateLabel, sex: d.sex, fill: d.fill, top: d.top, tagline: t('share.tagline'),
+      stats: [{ label: t('share.duration'), value: d.dur }, { label: t('share.volume'), value: d.vol }, { label: t('common.sets'), value: d.sets }] }, { format: fmt });
+    if (ui.modal !== m || m.format !== fmt) return; // el usuario cerró o cambió de formato mientras tanto
+    m.blob = blob; m.url = URL.createObjectURL(blob); m.filename = `formd-${d.fecha}${fmt === 'post' ? '-post' : ''}.png`;
+  } catch { if (ui.modal === m && m.format === fmt) m.err = true; }
+  if (ui.modal === m) render();
+}
+function revokeShare() { if (ui.modal?.url) { try { URL.revokeObjectURL(ui.modal.url); } catch {} ui.modal.url = null; } }
 function closeModal() {
   if (!ui.modal) return;
+  if (ui.modal.type === 'share') revokeShare();
   const ov = $app.querySelector('.overlay');
   if (ov && !reduced()) {
     ov.classList.add('out');
@@ -918,12 +957,22 @@ function modalHTML() {
   const m = ui.modal;
   if (!m) return '';
   let inner = '';
-  if (m.type === 'evidence') {
+  if (m.type === 'stretchwhy') {
+    inner = `<h2>${t('warm.whyTitle')}</h2><div class="col">${STRETCH_FACTS.map((k) => `<div><div class="row between"><b>${STRETCH_EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${STRETCH_EVIDENCE[k].level}">${STRETCH_EVIDENCE[k].level}</span></div><p class="mut sm">${esc(STRETCH_EVIDENCE[k][lang()])}</p></div>`).join('')}</div>`;
+  } else if (m.type === 'evidence') {
     const e = EVIDENCE[m.key];
     inner = `<div class="kicker">${t('evidence.level', { l: e.level })} · ${t('evidence.' + e.level)}</div><h2>${EVIDENCE_TITLE[m.key][lang()]}</h2>
       <p>${esc(e[lang()])}</p><p class="mut xs">${t('evidence.noCite')}</p>`;
   } else if (m.type === 'why') {
     inner = `<h2>${t('plan.whyTitle')}</h2><div class="col">${ui.plan.why.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
+  } else if (m.type === 'share') {
+    const st = m.format === 'post' ? 'post' : 'story';
+    inner = `<h2>${t('share.title')}</h2>
+      <div class="shprev ${st}">${m.url ? `<img src="${m.url}" alt="${t('share.preview')}">` : m.err ? `<p class="mut center">${t('share.err')}</p>` : `<div class="shload"><span class="spin">⟳</span><span class="mut xs">${t('share.loading')}</span></div>`}</div>
+      <div class="row gap">${['story', 'post'].map((f) => `<button class="seg grow ${st === f ? 'on' : ''}" data-a="shareFormat" data-v="${f}">${t('share.f.' + f)}</button>`).join('')}</div>
+      <button class="cta ${m.url ? '' : 'dim'}" data-a="shareDo">${t('share.share')}</button>
+      <div class="row gap"><button class="cta ghost shsm" data-a="shareSave">${t('share.save')}</button><button class="cta ghost shsm" data-a="shareCopy">${t('share.copy')}</button></div>
+      <p class="mut xs center shmsg">${esc(m.msg || t('share.hint'))}</p>`;
   } else if (m.type === 'histlist') {
     const hs = S.history.find((x) => x.id === m.sid);
     const rows = (hs?.series ?? []).map((x, i) => {
@@ -1019,14 +1068,15 @@ function modalHTML() {
         const w = suggestedWeightKg(cur, s.exercise, last?.peso_kg);
         return `<button class="opt ${i === 0 ? 'best' : ''}" data-a="useSub" data-v="${s.exercise.code}">
           <div class="row between"><b>${esc(exName(s.exercise))}</b>${i === 0 && !s.weak ? `<span class="acc xs">${t('sub.best')}</span>` : ''}</div>
-          <div class="mut xs">${equipName(s.exercise.equipment)}${w ? ' · ' + fmtW(w) : ''}</div></button>`;
-      }).join('') : `<p>${t('sub.none')}</p>`}`;
+          <div class="mut xs">${s.needs ? `<span class="acc">${t('sub.needs', { e: esc(equipName(s.needs)) })}</span>` : equipName(s.exercise.equipment)}${w && !s.needs ? ' · ' + fmtW(w) : ''}</div></button>`;
+      }).join('') : `<p>${t('sub.none2')}</p>`}`;
   }
-  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin'].includes(m.type);
+  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share'].includes(m.type);
   const adm = m.type === 'admin';
-  const still = adm && m.shown ? ' still' : '';
-  if (adm) m.shown = true;
-  return `<div class="overlay${still}" data-a="closeModal"><div class="sheet${adm ? ' adminsheet' : ''}${still}"${adm ? ' data-a="keep"' : ''} role="dialog" aria-modal="true"><i class="grab"></i>${inner}
+  const quiet = adm || m.type === 'share';
+  const still = quiet && m.shown ? ' still' : '';
+  if (quiet) m.shown = true;
+  return `<div class="overlay${still}" data-a="closeModal"><div class="sheet${adm ? ' adminsheet' : ''}${m.type === 'share' ? ' sharesheet' : ''}${still}"${adm ? ' data-a="keep"' : ''} role="dialog" aria-modal="true"><i class="grab"></i>${inner}
     ${showClose ? `<button class="link" data-a="closeModal">${m.type === 'sub' ? t('sub.wait') : t('common.close')}</button>` : ''}</div></div>`;
 }
 
@@ -1365,6 +1415,7 @@ const A = {
   discardSession() { ask(t('home.discardAsk'), () => { S.active = null; restTimer(0); ui.screen = null; ui.plan = null; persist(); render(); toast(t('home.discarded')); }); },
   leaveSession() { ui.modal = null; ui.screen = null; ui.plan = null; render(); window.scrollTo(0, 0); },
   nextBlock() { advanceBlock(); },
+  stretchWhy() { openModal({ type: 'stretchwhy' }); },
   warmNext() {
     const a = S.active, b = a.plan.blocks[a.idx];
     const cd = b.type === 'cooldown';
@@ -1516,6 +1567,28 @@ const A = {
       persist(); render(); bgSync(); touchAgenda();
     });
   },
+  shareSummary() {
+    const sm = ui.summary, a = S.active;
+    if (!sm || !a) return;
+    openShare({ title: splitName(a.split), fecha: String(a.fecha).slice(0, 10), seconds: sm.seconds, volume: sm.volume, sets: sm.sets, fill: sm.fill, series: a.sets });
+  },
+  shareSession(el, e) {
+    e?.preventDefault?.(); e?.stopPropagation?.();
+    const s = S.history.find((x) => x.id === el.dataset.s);
+    if (!s) return;
+    let fill = {};
+    for (const x of s.series ?? []) { const ex = BY_CODE.get(x.ejercicio_code); if (ex && ex.kind === 'strength') fill = addSetToFill(fill, null, x.ejercicio_code); }
+    openShare({ title: s.split ? splitName(s.split) : s.titulo, fecha: String(s.fecha).slice(0, 10), seconds: s.segundos_real || 0, volume: s.volumen_kg || 0, sets: (s.series ?? []).length, fill, series: s.series ?? [] });
+  },
+  shareFormat(el) { const m = ui.modal; if (m?.type !== 'share' || m.format === el.dataset.v) return; m.format = el.dataset.v; buildShare(); },
+  async shareDo() {
+    const m = ui.modal; if (m?.type !== 'share' || !m.blob) return;
+    const r = await shareFile(m.blob, { filename: m.filename, text: shareText(m), title: m.data.title });
+    if (ui.modal !== m) return;
+    if (r === 'unsupported') { m.msg = t('share.unsupported'); render(); } else if (r === 'shared') { m.msg = t('share.done'); render(); }
+  },
+  shareSave() { const m = ui.modal; if (m?.type !== 'share' || !m.blob) return; downloadBlob(m.blob, m.filename); m.msg = t('share.saved'); render(); },
+  async shareCopy() { const m = ui.modal; if (m?.type !== 'share') return; const ok = await copyText(shareText(m)); if (ui.modal === m) { m.msg = ok ? t('share.copied') : t('share.copyFail'); render(); } },
   exportCsv() { download('formd-historial.csv', csvFromHistory(S.history), 'text/csv'); },
   backup() { download('formd-copia.json', exportBackup(S), 'application/json'); },
   doSync() { doSync(true); },
@@ -1955,7 +2028,7 @@ setInterval(() => {
     const b = a.plan.blocks[a.idx];
     const w = warmMoves(a, b, b.type === 'cooldown')[Math.min(a.warmIdx || 0, 9)];
     const l = w ? Math.max(0, w.secs - Math.floor((Date.now() - a.warmT0) / 1000)) : 0;
-    if (wt.textContent !== mmss(l)) { wt.textContent = mmss(l); if (l === 0) { beep(880, 200); buzz(150); } }
+    if (wt.textContent !== mmss(l)) { wt.textContent = mmss(l); if (l === 0) { beep(880, 200); buzz(150); } else if (w?.side && l === Math.floor(w.secs / 2)) buzz(60); }
   }
   if (a.restEnd) {
     const left = Math.ceil((a.restEnd - Date.now()) / 1000);
@@ -1999,7 +2072,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '28';
+const APP_V = '29';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
