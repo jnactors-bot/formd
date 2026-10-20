@@ -108,8 +108,46 @@ export const baseMode = (mode) => MODE_BASE[mode] ?? 'muscle';
 // Fuerza: pocas repeticiones, descansos largos. Bajar grasa: más repeticiones y descansos cortos, con cardio.
 const MODE_TUNE = { strength: { repMin: 3, repMax: 6, rest: [180, 120], maxSets: 5, compoundOnly: true, rir: 2 }, fatloss: { repMin: 10, repMax: 15, rest: [45, 40], maxSets: 3, rir: 2 } };
 export const MUSCLE_ROTATION = ['push', 'pull', 'legs'];
-export const HYBRID_ROTATION = ['upper', 'cardio_easy', 'lower', 'cardio_interval'];
+// Orden pensado para las piernas: piernas → cardio suave (sin impacto) → HIIT (ya con 48 h de descanso) → superior → piernas.
+export const HYBRID_ROTATION = ['upper', 'lower', 'cardio_easy', 'cardio_interval'];
 const HARD = new Set(['lower', 'cardio_interval', 'legs']);
+// Cardio que carga fuerte las piernas (impacto): cuenta como día de piernas para el descanso.
+const LEG_IMPACT = new Set(['treadmill_intervals', 'treadmill_sprints', 'jump_rope', 'tuck_jumps', 'star_jumps', 'high_knees', 'stair_intervals']);
+const LOW_IMPACT_HIIT = ['bike_hiit', 'rower_intervals', 'elliptical_intervals'];
+const LEG_ZONES = ['quads', 'hamstrings', 'glutes'];
+
+/** Tipo de sesión real. Las registradas a mano ('manual') se deducen de lo que se hizo, para que cuenten en la rotación y el descanso. */
+export function effectiveSplit(s, mode) {
+  if (s.split && s.split !== 'manual') return s.split;
+  let hard = false, easy = false, leg = 0, up = 0;
+  for (const x of s.series ?? []) {
+    const ex = BY_CODE.get(x.ejercicio_code);
+    if (!ex) continue;
+    if (ex.kind === 'cardio') { if (CARDIO_HARD.includes(ex.code)) hard = true; else easy = true; continue; }
+    for (const [r, w] of Object.entries(ex.weights)) { if (LEG_ZONES.includes(r) || r === 'calves') leg += w; else up += w; }
+  }
+  if (hard) return 'cardio_interval';
+  if (easy && !leg && !up) return 'cardio_easy';
+  if (!leg && !up) return null;
+  const lower = leg >= up;
+  return baseMode(mode ?? s.modo) === 'hybrid' ? (lower ? 'lower' : 'upper') : (lower ? 'legs' : 'push');
+}
+
+/** Última vez que las piernas recibieron una carga fuerte (fuerza de piernas o cardio de impacto). */
+export function legLastMs(history) {
+  let last = -Infinity;
+  for (const s of history) {
+    const ms = sessionMs(s);
+    for (const x of s.series ?? []) {
+      const ex = BY_CODE.get(x.ejercicio_code);
+      if (!ex) continue;
+      const loads = ex.kind === 'cardio' ? LEG_IMPACT.has(ex.code) : LEG_ZONES.some((r) => (ex.weights[r] ?? 0) >= 0.7);
+      if (loads && ms > last) last = ms;
+    }
+  }
+  return last;
+}
+export const legHours = (history, now) => (now - legLastMs(history)) / 36e5;
 
 // ---------- Evidencia ----------
 // Las citas se completan al curar cada ficha; hasta entonces la app muestra "cita por verificar".
@@ -206,10 +244,10 @@ export function cooldownMinutes(minutes) {
 // ---------- Elección de sesión del día ----------
 export function nextSplit(mode, history) {
   const order = baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION;
-  const last = [...history].filter((s) => s.modo === mode && s.split && s.split !== 'manual').sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
-  if (!last) return order[0];
-  const i = order.indexOf(last.split);
-  return order[(i + 1) % order.length];
+  const done = [...history].filter((s) => s.modo === mode).map((s) => ({ s, sp: effectiveSplit(s, mode) })).filter((x) => x.sp && order.includes(x.sp));
+  done.sort((a, b) => String(b.s.fecha).localeCompare(String(a.s.fecha)));
+  if (!done.length) return order[0];
+  return order[(order.indexOf(done[0].sp) + 1) % order.length];
 }
 
 export function hoursSince(fecha, now) {
@@ -219,18 +257,20 @@ export function hoursSince(fecha, now) {
 export function hybridWarnings(history, split, now = Date.now()) {
   const warnings = [];
   const week = history.filter((s) => baseMode(s.modo) === 'hybrid' && hoursSince(s.fecha, now) <= 24 * 7);
-  const last = [...history].filter((s) => s.split !== 'manual').sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
-  if (last && HARD.has(last.split) && HARD.has(split) && hoursSince(last.fecha, now) < 24) {
+  const last = [...history].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+  const lastSp = last ? effectiveSplit(last) : null;
+  if (last && HARD.has(lastSp) && HARD.has(split) && hoursSince(last.fecha, now) < 24) {
     warnings.push({ key: 'recovery' });
   }
-  if (last && last.split !== undefined && hoursSince(last.fecha, now) < 6 && split !== last.split) {
+  if (last && lastSp && hoursSince(last.fecha, now) < 6 && split !== lastSp) {
     const strength = ['upper', 'lower'];
-    if ((strength.includes(last.split) && !strength.includes(split)) || (!strength.includes(last.split) && strength.includes(split))) {
+    if ((strength.includes(lastSp) && !strength.includes(split)) || (!strength.includes(lastSp) && strength.includes(split))) {
       warnings.push({ key: 'interference' });
     }
   }
-  const hard = week.filter((s) => HARD.has(s.split)).length;
+  const hard = week.filter((s) => HARD.has(effectiveSplit(s))).length;
   if (hard >= 3 && HARD.has(split)) warnings.push({ key: 'recovery' });
+  if (split === 'cardio_interval' && legHours(history, now) < 48) warnings.push({ key: 'legs' });
   return dedupe(warnings);
 }
 
@@ -252,7 +292,7 @@ export function weeklyLoad(history, now = Date.now()) {
       const ex = BY_CODE.get(x.ejercicio_code);
       if (ex && ex.kind === 'cardio') cardioMin += (x.duracion_s || 0) / 60;
     }
-    if (HARD.has(s.split)) hard++;
+    if (HARD.has(effectiveSplit(s))) hard++;
   }
   return { sessions, strengthKg: Math.round(strengthKg), cardioMin: Math.round(cardioMin), hard };
 }
@@ -274,7 +314,10 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
     const fat = mode === 'fatloss';
     // Bajar de peso: caminata inclinada primero (sostenible y de bajo impacto). Híbrido: carrera suave primero.
     const easy = fat ? ['incline_walk', ...CARDIO_EASY.filter((c) => c !== 'incline_walk')] : CARDIO_EASY;
-    const list = chosen === 'cardio_easy' ? easy : CARDIO_HARD;
+    const legsTired = legHours(history, now) < 48;
+    // Si las piernas aún están cargadas (<48 h), el HIIT va en bici, remo o elíptica (sin impacto) en vez de correr.
+    const hard = legsTired ? [...LOW_IMPACT_HIIT, ...CARDIO_HARD.filter((c) => !LOW_IMPACT_HIIT.includes(c))] : CARDIO_HARD;
+    const list = chosen === 'cardio_easy' ? easy : hard;
     const ex = list.map((c) => BY_CODE.get(c)).find((e) => e && hasEquip(avail, e.equipment));
     if (ex) {
       const interval = chosen === 'cardio_interval';
@@ -641,6 +684,8 @@ export function zoneLast(history) {
       const ex = BY_CODE.get(x.ejercicio_code);
       if (!ex) continue;
       for (const [r, w] of Object.entries(ex.weights)) if (w >= 0.5 && (last.get(r) ?? -Infinity) < ms) last.set(r, ms);
+      // El cardio de impacto (HIIT corriendo, saltos) también carga las piernas.
+      if (ex.kind === 'cardio' && LEG_IMPACT.has(ex.code)) for (const r of [...LEG_ZONES, 'calves']) if ((last.get(r) ?? -Infinity) < ms) last.set(r, ms);
     }
   }
   return last;
@@ -664,8 +709,10 @@ export function weekSets(history, now) {
 export function readiness(split, mode, history, now, available) {
   if (split === 'cardio_easy') return { score: 1, tired: [] };
   if (split === 'cardio_interval') {
-    const last = [...history].filter((s) => HARD.has(s.split)).sort((a, b) => sessionMs(b) - sessionMs(a))[0];
+    const last = [...history].filter((s) => HARD.has(effectiveSplit(s))).sort((a, b) => sessionMs(b) - sessionMs(a))[0];
     const h = last ? (now - sessionMs(last)) / 36e5 : Infinity;
+    const hl = legHours(history, now);
+    if (hl < 48) return { score: 0.35, tired: [{ region: 'quads', hours: Math.max(0, Math.round(hl)) }] };
     return h < 24 ? { score: 0.4, tired: [{ region: 'cardio_system', hours: Math.round(h) }] } : { score: 1, tired: [] };
   }
   const regs = [...splitRegions(split, mode, available)].filter((r) => r !== 'cardio_system');
@@ -698,7 +745,7 @@ export function rankSplits({ mode, history, now = Date.now(), available }) {
     const dist = (i - base + order.length) % order.length;
     const seq = [1, 0.6, 0.35, 0.2][Math.min(dist, 3)];
     let score = 0.5 * r.score + 0.3 * need + 0.2 * seq;
-    if (lastAny && HARD.has(lastAny.split) && HARD.has(split) && (now - sessionMs(lastAny)) / 36e5 < 24) score -= 0.25;
+    if (lastAny && HARD.has(effectiveSplit(lastAny)) && HARD.has(split) && (now - sessionMs(lastAny)) / 36e5 < 24) score -= 0.25;
     return { split, score, readiness: r.score, tired: r.tired, need, order: i };
   });
   rows.sort((a, b) => b.score - a.score || a.order - b.order);

@@ -630,3 +630,7 @@ form.col .fld input:focus { outline: none; border-color: var(--ac); }
 .sheet input[type="date"] { color-scheme: dark; }
 #m-err:empty { display: none; }
 #m-err { margin: 0; color: #ff6b6b; }
+
+/* Pestañas del historial: no se encogen ni parten el texto en pantallas angostas (se desplazan de lado). */
+.scroll-x > .seg, .scroll-x > .chip { flex: none; white-space: nowrap; }
+.seg { white-space: nowrap; }
