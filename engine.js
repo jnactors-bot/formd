@@ -206,7 +206,7 @@ export function cooldownMinutes(minutes) {
 // ---------- Elección de sesión del día ----------
 export function nextSplit(mode, history) {
   const order = baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION;
-  const last = [...history].filter((s) => s.modo === mode && s.split).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+  const last = [...history].filter((s) => s.modo === mode && s.split && s.split !== 'manual').sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
   if (!last) return order[0];
   const i = order.indexOf(last.split);
   return order[(i + 1) % order.length];
@@ -219,7 +219,7 @@ export function hoursSince(fecha, now) {
 export function hybridWarnings(history, split, now = Date.now()) {
   const warnings = [];
   const week = history.filter((s) => baseMode(s.modo) === 'hybrid' && hoursSince(s.fecha, now) <= 24 * 7);
-  const last = [...history].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+  const last = [...history].filter((s) => s.split !== 'manual').sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
   if (last && HARD.has(last.split) && HARD.has(split) && hoursSince(last.fecha, now) < 24) {
     warnings.push({ key: 'recovery' });
   }

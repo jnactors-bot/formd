@@ -479,7 +479,7 @@ function viewCalendar() {
   const done = doneBy.get(sel) ?? [];
   const sk = skipBy.get(sel);
   let detail = `<div class="mut">${t('cal.free')}</div>`;
-  if (done.length) detail = done.map((x) => `<div class="row between"><b>${esc(splitName(x.split) || x.titulo)}</b><span class="mut sm">${Math.round((x.segundos_real || 0) / 60)} ${t('common.min')}</span></div>`).join('');
+  if (done.length) detail = done.map((x) => `<div class="row between"><b>${esc(x.split === 'manual' ? x.titulo : splitName(x.split) || x.titulo)}</b><span class="mut sm">${Math.round((x.segundos_real || 0) / 60)} ${t('common.min')}</span></div>`).join('');
   else if (sk) detail = `<div class="row between"><b>${t('cal.missed')}</b><span class="mut sm">${t('skip.' + sk.reason)}</span></div>`;
   else if (plan[sel]) detail = `<div class="row between"><b>${splitName(plan[sel].split)}</b><span class="mut sm">${plan[sel].extra ? t('week.extra') : t('cal.planned')}</span></div>`;
   const gcal = plan[sel] && !done.length && (!S.account || remindCfg().cal) ? `<a class="link gcal" href="${gcalLink(sel, plan[sel].split)}" target="_blank" rel="noopener">${t('cal.addGoogle')}</a>` : '';
@@ -848,6 +848,7 @@ function viewHistory() {
   return `<main class="pad col stagger"><div class="row between"><h1>${t('history.title')}</h1>
     ${canSync(S) ? `<button class="icon-btn" data-a="doSync" aria-label="${t('history.sync')}">${ui.syncing ? '<span class="spin">⟳</span>' : '⟳'}</button>` : ''}</div>
     <div class="row gap scroll-x">${tabs}</div>${body}
+    <button class="link manualbtn" data-a="openManual">+ ${t('manual.btn')}</button>
     ${hist.length ? `<div class="row gap histfoot"><button class="link" data-a="exportCsv">${t('history.export')}</button><button class="link bad" data-a="clearHistory">${t('history.clear')}</button></div>` : ''}</main>${nav()}`;
 }
 
@@ -1061,6 +1062,87 @@ function adminHTML() {
 // ---------- Modales ----------
 function openModal(m) { ui.modal = m; render(); }
 
+// ---------- Registrar un entrenamiento a mano ----------
+const MANUAL_DEFAULT = 'treadmill_intervals';
+function manualOptions(sel) {
+  const cmp = (a, b) => exName(a).localeCompare(exName(b), lang());
+  const grp = (kind, label) => {
+    const list = CATALOG.exercises.filter((e) => e.kind === kind).sort((a, b) => (a.code === MANUAL_DEFAULT ? -1 : b.code === MANUAL_DEFAULT ? 1 : cmp(a, b)));
+    return list.length ? `<optgroup label="${esc(label)}">${list.map((e) => `<option value="${esc(e.code)}" ${e.code === sel ? 'selected' : ''}>${esc(exName(e))}</option>`).join('')}</optgroup>` : '';
+  };
+  return grp('cardio', t('manual.gCardio')) + grp('strength', t('manual.gStrength')) + grp('timed', t('manual.gTimed'));
+}
+function manualHTML(m) {
+  const ex = BY_CODE.get(m.code) ?? BY_CODE.get(MANUAL_DEFAULT);
+  const fld = (id, label, attrs = '', val = '') => `<label class="fld"><span class="mut xs">${label}</span><input id="${id}" type="number" inputmode="decimal" min="0" ${attrs} value="${esc(val)}"></label>`;
+  let fields;
+  if (ex.kind === 'cardio') {
+    fields = `<div class="row gap">${fld('m-dur', t('manual.durMin'), 'step="1"', m.dur ?? '')}${fld('m-km', t('manual.km'), 'step="0.1"', m.km ?? '')}</div>
+      <div class="col" style="gap:4px"><span class="mut xs">${t('manual.rounds')}</span><div class="row gap">${fld('m-rd', t('manual.roundsDone'), 'step="1"', m.rd ?? '')}${fld('m-rp', t('manual.roundsPlan'), 'step="1"', m.rp ?? '')}</div></div>`;
+  } else if (ex.kind === 'timed') {
+    fields = `<div class="row gap">${fld('m-n', t('common.sets'), 'step="1"', m.n ?? '')}${fld('m-dur', t('manual.durSec'), 'step="5"', m.dur ?? '')}</div>`;
+  } else {
+    fields = `<div class="row gap">${fld('m-n', t('common.sets'), 'step="1"', m.n ?? '')}${fld('m-w', unit().toUpperCase(), 'step="0.5"', m.w ?? '')}${fld('m-r', t('session.reps'), 'step="1"', m.r ?? '')}</div>`;
+  }
+  return `<h2>${t('manual.title')}</h2>
+    <div class="row gap"><label class="fld"><span class="mut xs">${t('manual.date')}</span><input id="m-date" type="date" max="${todayStr()}" value="${esc(m.date)}"></label></div>
+    <label class="fld"><span class="mut xs">${t('manual.type')}</span><select id="m-ex" data-a="manualEx" aria-label="${t('manual.type')}">${manualOptions(ex.code)}</select></label>
+    ${fields}
+    <label class="fld"><span class="mut xs">${t('manual.note')}</span><input id="m-note" type="text" maxlength="200" value="${esc(m.note ?? '')}"></label>
+    <p id="m-err" class="bad xs" role="alert" aria-live="polite">${esc(m.err ?? '')}</p>
+    <button class="cta" data-a="manualSave">${t('common.save')}</button>`;
+}
+function manualRead() { // conserva lo escrito al cambiar de ejercicio
+  const m = ui.modal, g = (id) => document.getElementById(id)?.value;
+  for (const [k, id] of [['date', 'm-date'], ['dur', 'm-dur'], ['km', 'm-km'], ['rd', 'm-rd'], ['rp', 'm-rp'], ['n', 'm-n'], ['w', 'm-w'], ['r', 'm-r'], ['note', 'm-note']]) { const v = g(id); if (v !== undefined) m[k] = v; }
+}
+function manualSave() {
+  const m = ui.modal;
+  if (m?.type !== 'manual') return;
+  manualRead();
+  const ex = BY_CODE.get(document.getElementById('m-ex')?.value) ?? BY_CODE.get(MANUAL_DEFAULT);
+  const num = (v) => { const x = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(x) ? x : 0; };
+  const fail = (key) => { m.err = t(key); const el = document.getElementById('m-err'); if (el) el.textContent = m.err; };
+  const date = String(m.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(dateMs(date))) return fail('manual.errDate');
+  if (date > todayStr()) return fail('manual.errFuture');
+  const base = { ejercicio_code: ex.code, ejercicio: ex.es, peso_kg: 0, reps: 0, duracion_s: 0, distancia_m: 0, rir: null, nota: '', es_pr: false };
+  let series = [], secs = 0, note = String(m.note || '').trim();
+  if (ex.kind === 'cardio') {
+    const min = num(m.dur), km = num(m.km), rd = Math.round(num(m.rd)), rp = Math.round(num(m.rp));
+    if (!(min > 0)) return fail('manual.errDur');
+    if (rd > 0 && rp > 0 && rd > rp) return fail('manual.errRounds');
+    secs = Math.round(min * 60);
+    const rtxt = rp > 0 ? (rd > 0 ? t('manual.roundsNote', { p: rp, d: rd }) : t('manual.roundsPlanOnly', { p: rp })) : rd > 0 ? t('manual.roundsDoneOnly', { d: rd }) : '';
+    note = [rtxt, note].filter(Boolean).join('. ');
+    series = [{ ...base, serie: 1, duracion_s: secs, distancia_m: Math.round(Math.max(0, km) * 1000), nota: note }];
+  } else if (ex.kind === 'timed') {
+    const n = Math.round(num(m.n)), d = Math.round(num(m.dur));
+    if (!(n > 0)) return fail('manual.errSets');
+    if (!(d > 0)) return fail('manual.errDur');
+    secs = n * d;
+    series = Array.from({ length: n }, (_, i) => ({ ...base, serie: i + 1, duracion_s: d, nota: note }));
+  } else {
+    const n = Math.round(num(m.n)), r = Math.round(num(m.r)), w = Math.max(0, num(m.w));
+    if (!(n > 0)) return fail('manual.errSets');
+    if (!(r > 0)) return fail('manual.errReps');
+    secs = n * 150; // estimación: ~2,5 min por serie
+    series = Array.from({ length: n }, (_, i) => ({ ...base, serie: i + 1, peso_kg: Math.round(toKg(w) * 100) / 100, reps: r, nota: note }));
+  }
+  const now = new Date();
+  const hhmm = date === todayStr() ? `${pad(now.getHours())}:${pad(now.getMinutes())}` : '12:00';
+  const rec = {
+    id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fecha: `${date}T${hhmm}`, modo: S.settings.mode, split: 'manual',
+    titulo: ex.code === MANUAL_DEFAULT ? (lang() === 'en' ? 'HIIT cardio' : 'Cardio HIIT') : exName(ex), minutos_plan: Math.max(1, Math.round(secs / 60)),
+    segundos_real: secs, volumen_kg: sessionVolumeKg(series), prs: 0, valoracion: 0, comentario: '', series,
+  };
+  S.history.push(rec);
+  if (canSync(S)) S.pending.push(rec.id);
+  ui.modal = null; ui.tab = 'history';
+  persist(); render(); bgSync(); touchAgenda();
+  toast(t('manual.done'));
+}
+
 // ---------- Instalar FORMD en el inicio ----------
 const installPlat = () => platformOf(navigator.userAgent, navigator.maxTouchPoints || 0);
 const installCtl = captureInstallPrompt(window, () => { if (ui.modal?.type === 'install') render(); });
@@ -1146,6 +1228,8 @@ function modalHTML() {
       <button class="cta ${m.url ? '' : 'dim'}" data-a="shareDo">${t('share.share')}</button>
       <div class="row gap"><button class="cta ghost shsm" data-a="shareSave">${t('share.save')}</button><button class="cta ghost shsm" data-a="shareCopy">${t('share.copy')}</button></div>
       <p class="mut xs center shmsg">${esc(m.msg || t('share.hint'))}</p>`;
+  } else if (m.type === 'manual') {
+    inner = manualHTML(m);
   } else if (m.type === 'histlist') {
     const hs = S.history.find((x) => x.id === m.sid);
     const rows = (hs?.series ?? []).map((x, i) => {
@@ -1246,7 +1330,7 @@ function modalHTML() {
           <div class="mut xs">${s.needs ? `<span class="acc">${t('sub.needs', { e: esc(equipName(s.needs)) })}</span>` : equipName(s.exercise.equipment)}${w && !s.needs ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none2')}</p>`}`;
   }
-  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share'].includes(m.type);
+  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share', 'manual'].includes(m.type);
   const adm = m.type === 'admin';
   const quiet = adm || m.type === 'share' || m.type === 'install';
   const still = quiet && m.shown ? ' still' : '';
@@ -1782,6 +1866,9 @@ const A = {
       touchHistSession(hs); openModal({ type: 'histlist', sid: hs.id }); toast(t('history.fixed'));
     });
   },
+  openManual() { openModal({ type: 'manual', code: MANUAL_DEFAULT, date: todayStr() }); },
+  manualEx(el) { const m = ui.modal; if (m?.type !== 'manual' || m.code === el.value) return; manualRead(); m.code = el.value; m.err = ''; render(); },
+  manualSave() { manualSave(); },
   histTab(el) { ui.histTab = el.dataset.v; render(); },
   histEx(el) { ui.histEx = el.value; render(); },
   delSession(el) {
@@ -1804,7 +1891,7 @@ const A = {
     if (!s) return;
     let fill = {};
     for (const x of s.series ?? []) { const ex = BY_CODE.get(x.ejercicio_code); if (ex && ex.kind === 'strength') fill = addSetToFill(fill, null, x.ejercicio_code); }
-    openShare({ title: s.split ? splitName(s.split) : s.titulo, fecha: String(s.fecha).slice(0, 10), seconds: s.segundos_real || 0, volume: s.volumen_kg || 0, sets: (s.series ?? []).length, fill, series: s.series ?? [] });
+    openShare({ title: s.split && s.split !== 'manual' ? splitName(s.split) : s.titulo, fecha: String(s.fecha).slice(0, 10), seconds: s.segundos_real || 0, volume: s.volumen_kg || 0, sets: (s.series ?? []).length, fill, series: s.series ?? [] });
   },
   shareFormat(el) { const m = ui.modal; if (m?.type !== 'share' || m.format === el.dataset.v) return; m.format = el.dataset.v; buildShare(); },
   async shareDo() {
@@ -2349,7 +2436,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '35';
+const APP_V = '36';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());

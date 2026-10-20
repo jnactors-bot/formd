@@ -625,3 +625,8 @@ form.col .fld input:focus { outline: none; border-color: var(--ac); }
 .cf-time{font-size:15px}
 .cf-btns{width:100%;display:flex;flex-direction:column;gap:10px;margin-top:6px}
 .cf-btns .cta{min-height:60px;font-size:19px}
+.manualbtn { align-self: center; opacity: .75; font-size: 14px; padding: 10px 14px; }
+.sheet select { width: 100%; box-sizing: border-box; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; min-height: 46px; font: inherit; }
+.sheet input[type="date"] { color-scheme: dark; }
+#m-err:empty { display: none; }
+#m-err { margin: 0; color: #ff6b6b; }
