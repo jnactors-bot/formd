@@ -422,8 +422,6 @@ function viewHome() {
   let note = '';
   if (todaySkip) note = `<div class="mut sm">${t('skip.today')}${next ? ' · ' + t('skip.movedTo', { split: splitName(next.split), day: fmtDate(next.date, { weekday: 'long' }) }) : ''}</div>`;
   else if (sug.restAdvised && !ui.splitOverride) note = `<div class="warn">${t('home.restAdvised')}</div>`;
-  else if (chosen.tired?.length) note = `<div class="warn">${t('home.tired', { z: regionShort(chosen.tired[0].region), h: chosen.tired[0].hours })}</div>`;
-  else if (baseMode(mode) === 'hybrid') { const w = hybridWarnings(S.history, split)[0]; if (w) note = `<div class="warn">${t('warn.' + w.key)}</div>`; }
   const soft = needsSoftReturn(S.history, Date.now()) ? `<span class="pill">${t('home.softReturn')}</span>` : '';
   return `<main class="pad col stagger">
     <div class="row between">${logo()}${syncBadge()}</div>
@@ -509,10 +507,9 @@ function viewPlan() {
   const p = ui.plan;
   const n = p.blocks.filter((b) => b.type === 'exercise').length;
   return `<main class="pad col stagger">
-    <div class="row between">${backBtn()}<button class="link" data-a="why">${t('plan.whyBtn')}</button></div>
+    <div class="row between">${backBtn()}<span></span></div>
     <div><div class="kicker">${t('mode.' + p.mode).toUpperCase()}</div><h1 class="hero">${t('splitShort.' + p.split)}</h1>
       <div class="mut sm">${p.minutes} ${t('common.min')} · ${t('plan.exercises', { n })}</div></div>
-    ${(p.tired ?? []).length ? `<div class="warn">${t('home.tired', { z: regionShort(p.tired[0].region), h: p.tired[0].hours })}<button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>` : (p.warnings ?? []).slice(0, 1).map((w) => `<div class="warn">${t('warn.' + w.key)}</div>`).join('')}
     ${p.soft ? `<span class="pill">${t('home.softReturn')}</span>` : ''}
     <div class="col list-plan">${p.blocks.map(blockRow).join('')}</div>
     <button class="cta" data-a="startSession">${t('plan.start')}</button>
@@ -695,7 +692,7 @@ function cardioPanel(a, b, el, running) {
     const rn = cur.seg.round ? ` · ${cur.seg.round}/${cur.seg.rounds}` : '';
     now = `<div class="cg-now ${hard ? 'hard' : ''}"><div class="cg-name">${esc(d.name)}${rn}</div>${d.speed ? `<div class="cg-speed">${esc(d.speed)}</div>` : ''}${d.incline ? `<div class="cg-inc">${esc(d.incline)}</div>` : ''}<div class="cg-left num-s" data-tick="cleft">${mmss(cur.left)}</div><div class="cg-rpe">${esc(d.rpe)} · ${esc(d.cue)}</div></div>`;
   }
-  return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started ? '' : `<div class="cg-note">${esc(modeNote(b.code, mode, lv, L))}</div>${levels}`}</div>`;
+  return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started ? '' : levels}</div>`;
 }
 
 // Pantalla de cardio en marcha o en pausa: lo mínimo y muy grande, para seguirla de reojo mientras corres.
@@ -2436,7 +2433,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '37';
+const APP_V = '39';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
