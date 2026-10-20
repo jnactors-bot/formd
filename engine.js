@@ -277,18 +277,35 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
     const list = chosen === 'cardio_easy' ? easy : CARDIO_HARD;
     const ex = list.map((c) => BY_CODE.get(c)).find((e) => e && hasEquip(avail, e.equipment));
     if (ex) {
-      const total = budget;
       const interval = chosen === 'cardio_interval';
       // Híbrido: 60 s fuerte + 90 s suave (base de velocidad). Bajar de peso: 30 s fuerte + 60 s suave (más corto y llevadero).
       const work = fat ? 30 : 60, easyS = fat ? 60 : 90;
+      // El HIIT no es largo: como mucho 6 rondas (híbrido) u 8 (bajar de peso), más calentar y enfriar. El cardio suave tope 45 min.
+      const maxRounds = fat ? 8 : 6;
+      const total = interval ? Math.min(budget, 480 + maxRounds * (work + easyS)) : Math.min(budget, 45 * 60);
       const main = total >= 900 ? total - 480 : total; // calentar 5′ y enfriar 3′ van dentro del tiempo
-      const rounds = interval ? Math.max(3, Math.floor(main / (work + easyS))) : 0;
+      const rounds = interval ? Math.min(maxRounds, Math.max(3, Math.floor(main / (work + easyS)))) : 0;
       const dur = interval ? (total >= 900 ? 480 : 0) + rounds * (work + easyS) : total;
       blocks.push({
         type: 'exercise', code: ex.code, kind: 'cardio', sets: 1, restS: 0, rir: null,
         durationS: dur, protocol: interval ? { workS: work, easyS, rounds } : null,
         seconds: dur, role: 'cardio', why: [interval ? 'recovery' : 'interference'],
       });
+      // Si sobra tiempo, se completa con otro tipo de ejercicio (core y, con mucho tiempo, brazos/espalda alta) en vez de alargar el cardio.
+      let left = budget - dur;
+      if (left >= 600) {
+        const extra = [{ role: 'accessory', pick: L.core }, { role: 'accessory', pick: L.core2 }];
+        if (left >= 1500) extra.push({ role: 'accessory', pick: L.rear }, { role: 'accessory', pick: L.biceps }, { role: 'accessory', pick: L.triceps });
+        const usedX = new Set(), trial = [];
+        for (const slot of extra) {
+          const x = pickExercise(slot, avail, usedX, mode);
+          if (!x) continue;
+          const sec = exerciseSeconds(3, 45, 'strength');
+          if (sec > left) continue;
+          usedX.add(x.code); trial.push({ ex: x, slot, sets: 3, rest: 45, sec }); left -= sec;
+        }
+        if (trial.length) { blocks.push(...toBlocks(trial, MODE_TUNE[mode])); why.add('proximity'); }
+      }
       why.add(interval ? 'recovery' : 'interference');
     }
   } else {

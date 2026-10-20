@@ -698,12 +698,42 @@ function cardioPanel(a, b, el, running) {
   return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started ? '' : `<div class="cg-note">${esc(modeNote(b.code, mode, lv, L))}</div>${levels}`}</div>`;
 }
 
+// Pantalla de cardio en marcha o en pausa: lo mínimo y muy grande, para seguirla de reojo mientras corres.
+function cardioFocus(a, b, el, running) {
+  const lv = cardioLevel(), L = lang();
+  const segs = cardioSegs(a, b);
+  const cur = segmentAt(segs, el), d = cardioDescribe(b.code, cur.seg, lv, L);
+  const nx = cur.next ? cardioDescribe(b.code, cur.next, lv, L) : null;
+  const hard = ['hard', 'hardwalk'].includes(cur.seg.kind);
+  const total = segs.reduce((n, x) => n + x.s, 0);
+  const pct = Math.min(100, Math.round((el / total) * 100));
+  const rn = cur.seg.round ? `${t('cardio.round')} ${cur.seg.round}/${cur.seg.rounds}` : `${cur.i + 1}/${cur.total}`;
+  const body = cur.done
+    ? `<div class="cf-name">${t('cardio.done')}</div>`
+    : `<div class="cf-round">${esc(rn)}</div>
+       <div class="cf-name ${hard ? 'hard' : ''}">${esc(d.name)}</div>
+       ${d.speed ? `<div class="cf-speed">${esc(d.speed)}</div>` : ''}
+       ${d.incline ? `<div class="cf-inc">${esc(d.incline)}</div>` : ''}
+       <div class="cf-left" data-tick="cleft">${mmss(cur.left)}</div>
+       ${nx ? `<div class="cf-next">${t('cardio.next')}: ${esc(nx.name)}${nx.speed ? ' · ' + esc(nx.speed) : ''}</div>` : `<div class="cf-next">${t('cardio.last')}</div>`}`;
+  return `<div class="cf ${hard ? 'hard' : ''}">${body}
+    <div class="cf-bar"><i style="width:${pct}%"></i></div>
+    <div class="cf-time mut" data-tick="stopwatch">${mmss(el)} / ${mmss(total)}</div>
+  </div>
+  <div class="cf-btns">
+    ${running ? `<button class="cta ghost" data-a="timerStop">${t('cardio.pause')}</button><button class="cta" data-a="endBlock">${t('cardio.finish')}</button>`
+      : `<button class="cta" data-a="timerStart">${t('cardio.resume')}</button><button class="cta ghost" data-a="endBlock">${t('cardio.finish')}</button>`}
+  </div>
+  ${running ? '' : `<label class="dist"><span class="mut xs">${t('session.distance')}</span><input id="f-d" type="number" inputmode="decimal" step="0.1" min="0"></label>`}`;
+}
+
 function viewTimed(a, b) {
   const ex = BY_CODE.get(b.code);
   const tm = a.timer;
   const running = tm && tm.running;
   const el = tm ? (tm.accum + (running ? Date.now() - tm.t0 : 0)) / 1000 : 0;
   const isCardio = b.kind === 'cardio';
+  if (isCardio && tm) return `<div class="col grow center-col cfwrap">${cardioFocus(a, b, el, running)}</div>`;
   let phase = '';
   if (!isCardio && b.protocol && running) {
     const cyc = b.protocol.workS + b.protocol.easyS;
@@ -1669,14 +1699,15 @@ const A = {
   skipRest() { S.active.restEnd = null; restTimer(0); persist(); render(); },
   cardioLevel(el) { S.settings.cardioLevel = el.dataset.v; persist(); render(); },
   timerStart() {
-    const a = S.active; a.timer = { running: true, t0: Date.now(), accum: a.timer?.accum ?? 0, lastPhase: 'work' };
+    const a = S.active; a.timer = { running: true, t0: Date.now(), accum: a.timer?.accum ?? 0, lastPhase: 'work', lastSeg: a.timer?.lastSeg };
     beep(660, 120); persist(); render();
   },
   timerStop() {
     const a = S.active, b = a.plan.blocks[a.idx];
-    const secs = Math.round((a.timer.accum + (Date.now() - a.timer.t0)) / 1000);
+    const ms = a.timer.accum + (Date.now() - a.timer.t0);
+    const secs = Math.round(ms / 1000);
+    if (b.kind === 'cardio') { a.timer = { running: false, accum: ms, t0: 0, lastSeg: a.timer.lastSeg }; persist(); render(); return; }
     a.timer = null;
-    if (b.kind === 'cardio') { a.cardioSecs = secs; persist(); render(); return; }
     recordSet(a, b, { peso_kg: 0, reps: 0, duracion_s: secs, rir: null, nota: '', es_pr: false });
   },
   endBlock() {
@@ -2275,6 +2306,10 @@ setInterval(() => {
     if (b.kind === 'cardio') {
       const segs = cardioSegs(a, b);
       const cur = segmentAt(segs, secs);
+      const tot = segs.reduce((n, x) => n + x.s, 0);
+      if (sw) sw.textContent = `${mmss(secs)} / ${mmss(tot)}`;
+      const bar = $app.querySelector('.cf-bar i');
+      if (bar) bar.style.width = Math.min(100, Math.round((secs / tot) * 100)) + '%';
       const key = cur.i + (cur.done ? 'd' : '');
       if (key !== a.timer.lastSeg) {
         const first = a.timer.lastSeg === undefined;
@@ -2314,7 +2349,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '34';
+const APP_V = '35';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
