@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>FORMD · Cookies y almacenamiento</title>
+<style>
+  body { margin: 0; background: #000; color: #f4f4f0; font: 16px/1.55 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 22px 60px; }
+  h1 { font-size: 24px; margin: 0 0 6px; } h2 { font-size: 17px; margin: 28px 0 6px; color: #c6ff3d; }
+  p, li { color: #cfcfca; } a { color: #c6ff3d; } .mut { color: #8d8d88; font-size: 13px; }
+  ul { padding-left: 20px; } code { color: #f4f4f0; word-break: break-all; }
+  a:focus-visible { outline: 3px solid #c6ff3d; outline-offset: 2px; }
+  .it { border-bottom: 1px solid #222; padding: 10px 0; } .it b { display: block; color: #f4f4f0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Cookies y almacenamiento en FORMD</h1>
+<p class="mut">Versión 2026-12 · <a href="#en">English below</a> · <a href="privacidad.html">Privacidad</a> · <a href="terminos.html">Términos</a> · <a href="creditos.html">Créditos</a></p>
+
+<h2>En pocas palabras</h2>
+<p>FORMD <b>no crea cookies propias</b>, <b>ni usa analíticas</b>, publicidad ni píxeles de seguimiento. La única cookie que vimos en pruebas es <code>g_state</code>, que crea el script de Google Sign-In (guarda el estado del botón de acceso; no la usamos para seguirte). Aparte, la app guarda en tu navegador lo necesario para que la app funcione. Por eso no mostramos un aviso de cookies que aceptar.</p>
+
+<h2>Lo que guarda la app en tu celular o navegador</h2>
+<div class="it"><b><code>formd.v1</code> (almacenamiento local)</b>Tu plan, preferencias, historial de entrenamientos y, si usas cuenta, tu correo, nombre, tus datos de registro y la sesión de tu dispositivo. Necesario para que la app funcione.</div>
+<div class="it"><b><code>formd.code</code> (almacenamiento local y de sesión)</b>El código de regalo de tu tarjeta (si abriste la app desde el QR), hasta que lo canjees.</div>
+<div class="it"><b><code>formd.instlogin</code>, <code>formd.notified</code>, <code>formd.upd.*</code></b>Recuerdan cuándo te mostramos un aviso (instalar la app, recordatorio del día, actualización) para no repetirlo.</div>
+<div class="it"><b><code>formd.splash</code> (almacenamiento de sesión)</b>Para mostrar la pantalla de inicio solo una vez por visita.</div>
+<div class="it"><b>Caché del <i>service worker</i> (<code>formd-v…</code>, <code>formd-cfg</code>)</b>Copia de los archivos de la app para que abra sin conexión, y tu hora de recordatorio si activaste avisos.</div>
+
+<h2>Terceros que pueden guardar cookies o ver tu IP</h2>
+<ul>
+<li><b>Google Sign-In</b> (accounts.google.com): al abrir la app se carga un script de Google, que crea la cookie <code>g_state</code> en este sitio; al iniciar sesión Google puede guardar otras cookies propias. FORMD no las controla. Más información en la política de privacidad de Google.</li>
+<li><b>GitHub Pages</b>: la app se sirve desde allí, así que GitHub recibe tu IP al abrirla. Si falta una foto de ejercicio en tu dispositivo, puede pedirse a raw.githubusercontent.com.</li>
+<li><b>Tipografías</b>: están alojadas dentro de la app; <b>no</b> se piden a Google Fonts.</li>
+<li><b>Google Apps Script / Hojas de cálculo</b>: reciben tus datos solo si usas cuenta (ver <a href="privacidad.html">Privacidad</a>).</li>
+</ul>
+
+<h2>Cómo borrarlo</h2>
+<p>En los ajustes del navegador: Privacidad → Borrar datos de navegación (cookies y datos del sitio). Esto cierra tu sesión y borra lo guardado en ese celular; sin cuenta, perderías tu historial local (puedes exportarlo antes). Con cuenta, tus datos siguen en el servidor hasta que borres la cuenta en Perfil → Cuenta.</p>
+<p class="mut">Documento informativo; conviene revisión legal profesional. Contacto: <a href="mailto:jnactors@gmail.com">jnactors@gmail.com</a></p>
+
+<h1 id="en" style="margin-top:44px">Cookies and storage in FORMD</h1>
+<p class="mut">Version 2026-12 · <a href="privacidad.html#en">Privacy</a> · <a href="terminos.html#en">Terms</a> · <a href="creditos.html#en">Credits</a></p>
+<h2>In short</h2>
+<p>FORMD <b>creates no cookies of its own</b> and uses <b>no analytics</b>, advertising or tracking pixels. The only cookie we saw in testing is <code>g_state</code>, created by the Google Sign-In script (it keeps the sign-in button state; we do not use it to track you). Besides that, the app stores in your browser what the app needs to work. That is why there is no cookie banner to accept.</p>
+<h2>What the app stores on your phone or browser</h2>
+<div class="it"><b><code>formd.v1</code> (local storage)</b>Your plan, preferences, workout history and, if you use an account, your email, name, registration data and your device session. Needed for the app to work.</div>
+<div class="it"><b><code>formd.code</code> (local and session storage)</b>The gift code from your card (if you opened the app from the QR), until you redeem it.</div>
+<div class="it"><b><code>formd.instlogin</code>, <code>formd.notified</code>, <code>formd.upd.*</code></b>Remember when we showed you a notice (install the app, daily reminder, update) so it is not repeated.</div>
+<div class="it"><b><code>formd.splash</code> (session storage)</b>To show the start screen once per visit.</div>
+<div class="it"><b>Service worker cache (<code>formd-v…</code>, <code>formd-cfg</code>)</b>A copy of the app files so it opens offline, and your reminder time if you turned reminders on.</div>
+<h2>Third parties that may set cookies or see your IP</h2>
+<ul>
+<li><b>Google Sign-In</b> (accounts.google.com): a Google script loads when the app opens and creates the <code>g_state</code> cookie on this site; when you sign in Google may set other cookies of its own. FORMD does not control them. See Google’s privacy policy.</li>
+<li><b>GitHub Pages</b>: the app is served from there, so GitHub receives your IP when you open it. If an exercise photo is missing on your device it may be requested from raw.githubusercontent.com.</li>
+<li><b>Fonts</b>: hosted inside the app; they are <b>not</b> requested from Google Fonts.</li>
+<li><b>Google Apps Script / Sheets</b>: receive your data only if you use an account (see <a href="privacidad.html#en">Privacy</a>).</li>
+</ul>
+<h2>How to delete it</h2>
+<p>In your browser settings: Privacy → Clear browsing data (cookies and site data). This signs you out and erases what is stored on that phone; without an account you would lose your local history (export it first). With an account, your data stays on the server until you delete the account in Profile → Account.</p>
+<p class="mut">Informational document; professional legal review is advisable. Contact: <a href="mailto:jnactors@gmail.com">jnactors@gmail.com</a></p>
+</main>
+</body>
+</html>

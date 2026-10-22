@@ -154,14 +154,14 @@ export const legHours = (history, now) => (now - legLastMs(history)) / 36e5;
 // ---------- Evidencia ----------
 // Las citas se completan al curar cada ficha; hasta entonces la app muestra "cita por verificar".
 export const EVIDENCE = {
-  proximity: { level: 'A', es: 'Terminar cada serie con 1–3 repeticiones en reserva da una hipertrofia similar a llegar al fallo, con menos fatiga.', en: 'Finishing sets with 1–3 reps in reserve gives similar hypertrophy to training to failure, with less fatigue.' },
+  proximity: { level: 'A', es: 'Terminar cada serie con 1–3 repeticiones en reserva suele dar una hipertrofia parecida a llegar al fallo, con menos fatiga.', en: 'Finishing sets with 1–3 reps in reserve tends to give similar hypertrophy to training to failure, with less fatigue.' },
   rest: { level: 'B', es: 'En ejercicios pesados conviene descansar 2 min o más; en aislamiento, 60–90 s. Si falta tiempo se acortan los descansos antes que quitar series.', en: 'For heavy lifts rest 2+ min; for isolation, 60–90 s. When time is short, rests are shortened before sets are removed.' },
-  reps: { level: 'A', es: 'Entre 5 y 30 repeticiones sirven para hipertrofia si el esfuerzo es cercano al fallo.', en: 'Anywhere from 5 to 30 reps works for hypertrophy if effort is close to failure.' },
+  reps: { level: 'A', es: 'Entre 5 y 30 repeticiones pueden servir para hipertrofia si el esfuerzo es cercano al fallo.', en: 'Anywhere from 5 to 30 reps can work for hypertrophy if effort is close to failure.' },
   order: { level: 'B', es: 'Los ejercicios que más te importan van primero, cuando tienes más energía.', en: 'The lifts that matter most go first, while you have the most energy.' },
-  frequency: { level: 'A', es: 'Entrenar cada grupo muscular al menos 2 veces por semana rinde mejor que 1 vez con el mismo volumen total.', en: 'Training each muscle group at least twice a week beats once a week at equal total volume.' },
+  frequency: { level: 'A', es: 'Entrenar cada grupo muscular al menos 2 veces por semana suele rendir mejor que 1 vez con el mismo volumen total.', en: 'Training each muscle group at least twice a week tends to beat once a week at equal total volume.' },
   zones: { level: 'C', es: 'Variar ángulos (plano e inclinado) cubre distintas zonas del pecho. Los estudios EMG son pequeños y no coinciden del todo.', en: 'Varying angles (flat and incline) covers different chest zones. EMG studies are small and not fully consistent.' },
-  interference: { level: 'B', es: 'Separar fuerza y carrera intensa por 6 h o más (idealmente otro día) reduce el efecto de interferencia.', en: 'Separating strength and hard running by 6+ h (ideally another day) reduces the interference effect.' },
-  recovery: { level: 'B', es: 'Dos sesiones duras seguidas limitan la recuperación; alterna duro y suave.', en: 'Back-to-back hard sessions limit recovery; alternate hard and easy days.' },
+  interference: { level: 'B', es: 'Separar fuerza y carrera intensa por 6 h o más (idealmente otro día) podría reducir el efecto de interferencia.', en: 'Separating strength and hard running by 6+ h (ideally another day) may reduce the interference effect.' },
+  recovery: { level: 'B', es: 'Dos sesiones duras seguidas pueden limitar la recuperación; conviene alternar duro y suave.', en: 'Back-to-back hard sessions can limit recovery; consider alternating hard and easy days.' },
 };
 
 export const EVIDENCE_TITLE = {

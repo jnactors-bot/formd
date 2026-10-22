@@ -63,7 +63,7 @@ export const stretchRemote = (s, i) => `https://raw.githubusercontent.com/yuhona
 
 // Evidencia (mismo formato que EVIDENCE de engine.js). Honesta: no promete prevenir agujetas.
 export const STRETCH_EVIDENCE = {
-  dose: { level: 'A', es: 'Para ganar movilidad, el estiramiento estático funciona: unos 30 s por músculo (hasta 2–4 repeticiones) y 90 s o más por grupo a la semana.', en: 'To gain mobility, static stretching works: about 30 s per muscle (up to 2–4 reps) and 90 s or more per muscle group each week.' },
+  dose: { level: 'A', es: 'Para ganar movilidad, el estiramiento estático funciona: unos 30 s por músculo, repetido varias veces por semana.', en: 'To gain mobility, static stretching works: about 30 s per muscle, repeated several times a week.' },
   doms: { level: 'A', es: 'Estirar no previene de forma fiable las agujetas: la revisión Cochrane halló reducciones sin importancia clínica. Úsalo para relajarte y mantener el rango de movimiento.', en: 'Stretching does not reliably prevent soreness: the Cochrane review found clinically unimportant reductions. Use it to unwind and keep your range of motion.' },
   cooldown: { level: 'B', es: 'Una vuelta a la calma activa ayuda a bajar el pulso y relajarte, pero no hay evidencia de que prevenga lesiones ni acelere la recuperación.', en: 'An active cool-down helps settle your heart rate and relax, but there is no evidence it prevents injury or speeds recovery.' },
   muscles: { level: 'C', es: 'Elegimos los estiramientos según los músculos que trabajaste hoy (por series y peso de cada ejercicio). Es una regla práctica, no un protocolo validado.', en: 'Stretches are chosen from the muscles you trained today (by sets and each lift weighting). It is a practical rule, not a validated protocol.' },

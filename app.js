@@ -254,7 +254,7 @@ function viewLogin() {
     <div class="sso-slot" data-slot="apple-facebook"></div>
     ${warn}
     <div class="grow"></div>
-    <p class="mut xs center legalnote">${t('login.legal', { a: '<a href="terminos.html" target="_blank" rel="noopener">', b: '<a href="privacidad.html" target="_blank" rel="noopener">', z: '</a>' })}</p>
+    <p class="mut xs center legalnote">${t('login.legal', { a: '<a href="terminos.html" target="_blank" rel="noopener">', b: '<a href="privacidad.html" target="_blank" rel="noopener">', z: '</a>' })} <a href="cookies.html" target="_blank" rel="noopener">${t('legal.cookies')}</a></p>
   </main>`;
 }
 // TODO(Apple): botón «Continuar con Apple» dentro de .sso-slot cuando existan Services ID + dominio (README).
@@ -488,7 +488,7 @@ function viewCalendar() {
   const wk = buildWeek(args);
   return `<main class="pad col stagger">
     <div class="row between">${backBtn()}<b class="caltitle">${t('cal.title')}</b><span class="spacer44"></span></div>
-    <div class="row between monthnav"><button class="icon-btn" data-a="calPrev" aria-label="‹">${ICON.back}</button><b class="monthname">${esc(monthTitle)}</b><button class="icon-btn" data-a="calNext" aria-label="›">${ICON.chev}</button></div>
+    <div class="row between monthnav"><button class="icon-btn" data-a="calPrev" aria-label="${t('cal.prev')}">${ICON.back}</button><b class="monthname">${esc(monthTitle)}</b><button class="icon-btn" data-a="calNext" aria-label="${t('cal.next')}">${ICON.chev}</button></div>
     <div class="calwrap"><div class="calhead">${[0, 1, 2, 3, 4, 5, 6].map((i) => `<span>${dayLetter(i)}</span>`).join('')}</div><div class="calgrid">${cells.join('')}</div></div>
     <div class="card daycard"><div class="label">${esc(fmtDate(sel, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>${detail}${gcal}</div>
     ${actions}
@@ -571,8 +571,9 @@ function viewSession() {
 }
 
 function demoMedia(code) {
-  const img = (i, cls) => `<img ${cls} src="ex/${code}_${i}.jpg" data-rem="${exRemote(code, i)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
-  return `<div class="vid" aria-hidden="true">${img(0, '')}${img(1, 'class="b"')}</div>`;
+  const ex0 = BY_CODE.get(code), nm = ex0 ? esc(exName(ex0)) : '';
+  const img = (i, cls) => `<img ${cls} src="ex/${code}_${i}.jpg" data-rem="${exRemote(code, i)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="${i === 0 ? nm : ''}" decoding="async">`;
+  return `<div class="vid" role="group" aria-label="${nm}">${img(0, '')}${img(1, 'class="b"')}</div>`;
 }
 
 function viewIntro(b) {
@@ -595,14 +596,14 @@ function viewWarmup(a, b, cd) {
   const w = list[i];
   if (!a.warmT0) a.warmT0 = Date.now();
   const left = Math.max(0, w.secs - Math.floor((Date.now() - a.warmT0) / 1000));
-  const img = (n, cls) => `<img ${cls} src="ex/w_${cd ? 'st_' : ''}${w.key}_${n}.jpg" data-rem="${warmupRemote(w, n)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="" decoding="async">`;
+  const img = (n, cls) => `<img ${cls} src="ex/w_${cd ? 'st_' : ''}${w.key}_${n}.jpg" data-rem="${warmupRemote(w, n)}" onerror="if(this.dataset.rem){this.src=this.dataset.rem;delete this.dataset.rem}" alt="${n === 0 ? esc(w[lang()]) : ''}" decoding="async">`;
   const dots = list.map((_, k) => `<i class="${k < i ? 'on' : k === i ? 'cur' : ''}"></i>`).join('');
   const last = i === list.length - 1;
   const tgt = cd ? `<span class="pill lv-A warm-tgt">${esc(regionShort(targetRegion(w, regionLoad(a.plan, a.sets))))}</span>` : '';
   const side = cd && w.side ? `<div class="mut xs warm-side">${t('warm.eachSide')} · ${Math.round(w.secs / 2)} s</div>` : '';
   return `<div class="col grow warm">
     <div class="row between"><div><div class="kicker">${b.minutes} ${t('common.min')} · ${t('warm.of', { n: i + 1, total: list.length })}</div><h1 class="ex">${cd ? t('plan.cooldown') : t('plan.warmup')}</h1></div>${cd ? `<button class="link tiny" data-a="stretchWhy" aria-label="${t('warm.whyBtn')}">ⓘ</button>` : ''}</div>
-    <div class="vid" aria-hidden="true">${img(0, '')}${img(1, 'class="b"')}</div>
+    <div class="vid" role="group" aria-label="${esc(w[lang()])}">${img(0, '')}${img(1, 'class="b"')}</div>
     <div class="warm-name">${esc(w[lang()])}</div>${tgt}${side}
     <p class="mut sm warm-cue">${esc(w.cue[lang()])}</p>
     <div class="warm-t num-s" data-tick="warm">${mmss(left)}</div>
@@ -647,7 +648,7 @@ function setChips(a, code) {
 
 function stepper(id, value, step, label, suffix) {
   return `<div class="stepper"><button class="step-btn" data-a="step" data-f="${id}" data-d="-1" data-step="${step}" aria-label="−">−</button>
-    <label><span class="mut xs">${label}</span><div class="step-val"><input id="${id}" type="number" inputmode="decimal" step="${step}" min="0" value="${value}"><em>${suffix}</em></div></label>
+    <label><span class="mut xs">${label}</span><div class="step-val"><input id="${id}" type="number" inputmode="decimal" step="${step}" min="0" value="${esc(value)}"><em>${suffix}</em></div></label>
     <button class="step-btn" data-a="step" data-f="${id}" data-d="1" data-step="${step}" aria-label="+">+</button></div>`;
 }
 
@@ -805,7 +806,7 @@ function sessionCard(s) {
   const det = (s.series ?? []).map((x, i) => {
     const ex = BY_CODE.get(x.ejercicio_code);
     const label = ex ? exName(ex) : x.ejercicio;
-    const body = ex && ex.kind !== 'strength' ? `${mmss(x.duracion_s || 0)}${x.distancia_m ? ' · ' + (x.distancia_m / 1000).toFixed(1) + ' km' : ''}` : `${fmtW(x.peso_kg || 0)} × ${x.reps}`;
+    const body = ex && ex.kind !== 'strength' ? `${mmss(x.duracion_s || 0)}${x.distancia_m ? ' · ' + (x.distancia_m / 1000).toFixed(1) + ' km' : ''}` : `${fmtW(x.peso_kg || 0)} × ${esc(x.reps)}`;
     if (ex && ex.kind !== 'strength') return `<li><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''}</span></li>`;
     // Series de fuerza: se tocan para corregir peso o repeticiones
     return `<li><button class="setrow" data-a="editHistSet" data-s="${esc(s.id)}" data-i="${i}" aria-label="${t('history.editSet')}"><span>${esc(label)}</span><span class="num-s">${body}${x.es_pr ? ' 🏆' : ''} <i class="pen">${ICON.edit ?? '✎'}</i></span></button></li>`;
@@ -818,7 +819,7 @@ function sessionCard(s) {
   };
   const sum = cnt.length ? `<ul class="exsum">${cnt.slice(0, 3).map((c) => `<li>${line(c)}</li>`).join('')}${cnt.length > 3 ? `<li class="mut">${t('history.more', { n: cnt.length - 3 })}</li>` : ''}</ul>` : '';
   return `<details class="card sess" data-sid="${esc(s.id)}" ${ui.histOpen === s.id ? 'open' : ''}><summary><div class="row between"><div class="grow"><b>${esc(s.titulo)}</b>
-    <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + s.prs + ' PR' : ''}</div>${sum}</div>
+    <div class="mut xs">${esc(fmtDate(String(s.fecha).slice(0, 10), { day: 'numeric', month: 'short' }))} · ${Math.round((s.segundos_real || 0) / 60)} ${t('common.min')} · ${fmtW(s.volumen_kg || 0)}${s.prs ? ' · 🏆 ' + esc(s.prs) + ' PR' : ''}</div>${sum}</div>
     <div class="col gap"><button class="icon-btn" data-a="shareSession" data-s="${esc(s.id)}" aria-label="${t('share.btn')}">${ICON.share}</button><button class="icon-btn" data-a="openHistEdit" data-s="${esc(s.id)}" aria-label="${t('history.editSet')}"><i class="pen">✎</i></button><button class="icon-btn trash" data-a="delSession" data-v="${esc(s.id)}" aria-label="${t('history.delete')}">${ICON.trash}</button></div></div></summary>
     <ul class="list">${det}</ul></details>`;
 }
@@ -1287,7 +1288,7 @@ function modalHTML() {
     inner = `<h2>${t('account.log')}</h2>` + (L.loading ? `<p class="mut">${t('admin.loading')}</p>` : L.err ? `<div class="warn">${esc(L.err)}</div>` : !L.list?.length ? `<p class="mut">${t('log.empty')}</p>` : `<div class="col loglist">${L.list.map((a) => `<div class="logrow"><div class="row between"><b>${esc(String(a.fecha_hora ?? '').slice(0, 16))}</b><span class="mut xs">v${esc(a.version)}</span></div><div class="acc xs">${mk(a.terminos)} ${t('log.terms')} · ${mk(a.privacidad)} ${t('log.priv')} · ${mk(a.salud)} ${t('log.health')}</div><div class="mut xs logdev">${esc(a.dispositivo)}</div></div>`).join('')}</div>`);
   } else if (m.type === 'legal') {
     const lk = (h, k) => `<a class="rowitem" href="${h}" target="_blank" rel="noopener"><span>${t(k)}</span><span class="chev">${ICON.chev}</span></a>`;
-    inner = `<h2>${t('profile.legal')}</h2><div class="col list">${lk('terminos.html', 'legal.terms')}${lk('privacidad.html', 'legal.privacy')}${lk('creditos.html', 'legal.credits')}<button class="rowitem" data-a="openClaim"><span>${t('legal.claims')}</span><span class="chev">${ICON.chev}</span></button><button class="rowitem" data-a="checkUpdate"><span>${t('update.check')} · v${APP_V}</span><span class="chev">${ICON.chev}</span></button></div>`;
+    inner = `<h2>${t('profile.legal')}</h2><div class="col list">${lk('terminos.html', 'legal.terms')}${lk('privacidad.html', 'legal.privacy')}${lk('cookies.html', 'legal.cookies')}${lk('creditos.html', 'legal.credits')}<button class="rowitem" data-a="openClaim"><span>${t('legal.claims')}</span><span class="chev">${ICON.chev}</span></button><button class="rowitem" data-a="checkUpdate"><span>${t('update.check')} · v${APP_V}</span><span class="chev">${ICON.chev}</span></button></div>`;
   } else if (m.type === 'claim') {
     const c = claimState();
     if (!S.account) inner = `<h2>${t('legal.claims')}</h2><p class="mut">${t('claim.noAccount')}</p>`;
@@ -1348,6 +1349,7 @@ function modalHTML() {
 function render() {
   setLang(S.settings.lang);
   noteApproval();
+  if (ui.modal?.type === 'manual') manualRead(); // un aviso que se apaga o una sincronización no deben borrar lo que la persona está escribiendo
   const r = route();
   const views = { login: viewLogin, consent: viewConsent, datos: viewDatos, pending: viewPending, welcome: viewWelcome, sex: viewSex, equip: viewEquip, week: viewWeek, calendar: viewCalendar, plan: viewPlan, session: viewSession, summary: viewSummary };
   let html;
@@ -1358,7 +1360,7 @@ function render() {
   const deeper = changed && DEEP.has(r) && ui.dir === 'fwd';
   const y = window.scrollY;
   const ly = $app.querySelector('.adminlist')?.scrollTop ?? 0;
-  $app.innerHTML = html + modalHTML() + (ui.toast ? `<div class="toast" role="status">${esc(ui.toast)}</div>` : '');
+  $app.innerHTML = html + modalHTML() + (ui.toast ? `<div class="toast" aria-hidden="true">${esc(ui.toast)}</div>` : '');
   const main = $app.querySelector('main');
   if (main && $app.querySelector('.nav')) main.classList.add('has-nav');
   if (main && changed) main.classList.add(ui.dir === 'back' ? 'enter-back' : 'enter-fwd');
@@ -2483,7 +2485,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '40';
+const APP_V = '41';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
@@ -2523,3 +2525,43 @@ if (accountMode(S) && S.account.consent && navigator.onLine) {
   // Al abrir la app: renueva la sesión sin pedir nada (si Google ya la conoce) y trae estado, datos y rol de administrador.
   (async () => { if (await ensureToken()) refreshAccount(); })();
 } else if (isAdmin()) adminLoad(true);
+
+// Accesibilidad: en las ventanas, Esc cierra, Tab queda dentro y el foco vuelve al botón que la abrió; los avisos (toast) se leen en voz alta.
+{
+  const FOC = 'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  const live = document.createElement('div');
+  live.className = 'sr'; live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite');
+  document.body.appendChild(live);
+  let trig = '', wasOpen = false, lastToast = '';
+  document.addEventListener('click', (e) => { if (wasOpen) return; const b = e.target.closest?.('[data-a]'); trig = b ? b.dataset.a + '|' + (b.dataset.v ?? '') : ''; }, true);
+  new MutationObserver(() => {
+    const sh = $app.querySelector('.sheet');
+    if (sh) {
+      const h = sh.querySelector('h2');
+      if (h) { h.id = 'dlg-t'; sh.setAttribute('aria-labelledby', 'dlg-t'); }
+      sh.setAttribute('tabindex', '-1');
+      if (!sh.contains(document.activeElement)) sh.focus({ preventScroll: true });
+      wasOpen = true;
+    } else if (wasOpen) {
+      wasOpen = false;
+      const [a, v] = trig.split('|');
+      const el = a ? $app.querySelector(`[data-a="${a}"]${v ? `[data-v="${CSS.escape(v)}"]` : ''}`) : null;
+      if (el) el.focus({ preventScroll: true });
+    }
+    const tt = $app.querySelector('.toast')?.textContent ?? '';
+    if (tt !== lastToast) live.textContent = tt;
+    lastToast = tt;
+  }).observe($app, { childList: true });
+  document.addEventListener('keydown', (e) => {
+    const sh = $app.querySelector('.sheet');
+    if (!sh) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+    if (e.key !== 'Tab') return;
+    const f = [...sh.querySelectorAll(FOC)].filter((x) => x.offsetParent !== null);
+    if (!f.length) { e.preventDefault(); sh.focus(); return; }
+    const cur = document.activeElement;
+    if (!sh.contains(cur)) { e.preventDefault(); f[0].focus(); }
+    else if (e.shiftKey && (cur === f[0] || cur === sh)) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && cur === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+  });
+}
