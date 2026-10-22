@@ -43,6 +43,17 @@ const NON_TREADMILL = {
 
 const TREADMILL = new Set(['treadmill_run_easy', 'treadmill_intervals', 'treadmill_sprints', 'incline_walk', 'treadmill_walk', 'outdoor_run']);
 const RUN_CODES = new Set(['treadmill_run_easy', 'outdoor_run']);
+const SWIM_CODES = new Set(['swim_steady', 'swim_intervals']);
+export const isSwimCode = (code) => SWIM_CODES.has(code);
+
+// Natación (piscina): sin velocidad ni inclinación; manda la sensación (hablar frases cortas entre largos).
+const SWIM = {
+  warm: { name: { es: 'Nada suave para calentar', en: 'Swim easy to warm up' }, cue: { es: 'Estilo cómodo, sin prisa.', en: 'Comfortable stroke, no rush.' } },
+  steady: { name: { es: 'Nada continuo, respiración tranquila', en: 'Swim steady, relaxed breathing' }, cue: { es: 'Entre largos podrías decir frases cortas.', en: 'Between lengths you could say short sentences.' } },
+  hard: { name: { es: 'Nada fuerte', en: 'Swim hard' }, cue: { es: 'Fuerte pero con técnica. Entre largos solo palabras sueltas.', en: 'Hard but with good technique. Single words between lengths.' } },
+  rec: { name: { es: 'Descansa en el borde o nada muy suave', en: 'Rest at the wall or swim very easy' }, cue: { es: 'Respira hasta poder hablar frases.', en: 'Breathe until you can speak sentences.' } },
+  cool: { name: { es: 'Nada suave para enfriar', en: 'Swim easy to cool down' }, cue: { es: 'Muy suave hasta que baje el pulso.', en: 'Very easy until your heart rate drops.' } },
+};
 export const isRunCode = (code) => RUN_CODES.has(code);
 
 const seg = (kind, s, extra = {}) => ({ kind, s: Math.max(10, Math.round(s)), rpe: TXT[kind].rpe, ...extra });
@@ -61,7 +72,7 @@ export function cardioSegments(code, totalS, protocol, opts = {}) {
   if (protocol) {
     const cyc = protocol.workS + protocol.easyS;
     const rounds = Math.max(2, Math.floor(main / cyc));
-    const walkHard = lv === 'beginner' && (mode === 'fatloss' || code === 'treadmill_intervals' && mode !== 'hybrid');
+    const walkHard = !SWIM_CODES.has(code) && lv === 'beginner' && (mode === 'fatloss' || code === 'treadmill_intervals' && mode !== 'hybrid');
     for (let i = 0; i < rounds; i++) {
       out.push(walkHard ? seg('hardwalk', protocol.workS, { speed: 'brisk', incline: 'brisk', round: i + 1, rounds }) : seg('hard', protocol.workS, { speed: 'hard', incline: 'flat', round: i + 1, rounds }));
       out.push(seg('rec', protocol.easyS, { speed: 'rec', incline: 'flat', round: i + 1, rounds }));
@@ -88,6 +99,7 @@ export function cardioSegments(code, totalS, protocol, opts = {}) {
   if (cool) out.push(seg('cool', cool, { speed: 'walk', incline: 'flat' }));
   const sum = out.reduce((n, x) => n + x.s, 0);
   if (sum !== T && out.length) out[out.length - 1].s = Math.max(10, out[out.length - 1].s + (T - sum));
+  if (SWIM_CODES.has(code)) for (const x of out) { x.speed = null; x.incline = null; }
   return out;
 }
 
@@ -111,6 +123,7 @@ export function describe(code, sg, level = 'beginner', lang = 'es') {
   const lv = LEVELS.includes(level) ? level : 'beginner';
   const tx = TXT[sg.kind];
   const treadmill = TREADMILL.has(code);
+  const swim = SWIM_CODES.has(code) && SWIM[sg.kind];
   const speed = treadmill && sg.speed ? fmtKmh(SPEEDS[lv][sg.speed], L) : '';
   const incline = treadmill && sg.incline ? `${L === 'en' ? 'Incline' : 'Inclinación'} ${INCLINE[sg.incline]}` : '';
   let name = tx[L];
@@ -121,6 +134,7 @@ export function describe(code, sg, level = 'beginner', lang = 'es') {
     if (sg.kind === 'rec') cue = L === 'en' ? 'Go very easy until your breathing settles.' : 'Muy suave hasta que se normalice la respiración.';
     if (NON_TREADMILL[code] && ['steady', 'run', 'jog', 'hard'].includes(sg.kind)) cue = NON_TREADMILL[code][L];
   }
+  if (swim) { name = swim.name[L]; cue = swim.cue[L]; }
   return { name, speed, incline, rpe: `${L === 'en' ? 'Effort' : 'Esfuerzo'} ${sg.rpe}/10`, cue };
 }
 

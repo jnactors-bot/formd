@@ -5,7 +5,7 @@ import { CATALOG } from './catalog.js';
 import {
   BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
-  sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad,
+  sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad, moveBlock, substituteBlock, replaceBlock,
   REST_OPTIONS, bumpRestAdj, effectiveRest, plannedSecondsWith, PERIOD_DAYS, MUSCLE_GROUPS, mondayOf, periodBuckets, regionSetsByDay, sessionExerciseCounts, setsByMuscleGroup, topExercises,
   DEFAULT_WEEK, addDays, buildWeek, calendarEvents, dateMs, dayIdx, localDate, needsSoftReturn, nextPlannedDay, planRange, rankSplits, suggestToday,
 } from './engine.js';
@@ -14,7 +14,7 @@ import { CUES, moveKey } from './anim.js';
 import { exRemote } from './exmap.js';
 import { SHARE_URL, copyText, downloadBlob, renderShareCard, shareFile } from './share.js';
 import { warmupFor, warmupRemote } from './warmup.js';
-import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, cardioSegments, describe as cardioDescribe, fmtDur, isRunCode, modeNote, segmentAt, steps as cardioSteps } from './cardio.js';
+import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, isSwimCode, cardioSegments, describe as cardioDescribe, fmtDur, isRunCode, modeNote, segmentAt, steps as cardioSteps } from './cardio.js';
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
@@ -110,6 +110,8 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   chev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   swap: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
@@ -494,13 +496,18 @@ function viewCalendar() {
   </main>`;
 }
 
-function blockRow(b) {
+function blockRow(b, i, all) {
   if (b.type === 'warmup') return `<div class="row between mini mut"><span>${t('plan.warmup')}</span><span>${b.minutes} ${t('common.min')}</span></div>`;
   if (b.type === 'cooldown') return `<div class="row between mini mut"><span>${t('plan.cooldown')}</span><span>${b.minutes} ${t('common.min')}</span></div>`;
   const ex = BY_CODE.get(b.code);
   const right = b.kind === 'cardio' ? (b.protocol ? `${b.protocol.rounds} × ${b.protocol.workS + b.protocol.easyS}s` : `${Math.round(b.durationS / 60)} ${t('common.min')}`)
     : b.kind === 'timed' ? `${b.sets} × ${b.durationS}s` : `${b.sets} × ${b.repMin}–${b.repMax}`;
-  return `<button class="row between item" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}: ${esc(exName(ex))}"><div class="grow left"><b>${esc(exName(ex))}</b></div><span class="mut num-s">${right}</span><span class="playdot">${ICON.play}</span></button>`;
+  // Fila del plan: ver demo (toda la zona del nombre) + subir, bajar y cambiar ejercicio (≥ 40 px). El calentamiento y la vuelta a la calma no se mueven.
+  const canUp = all[i - 1]?.type === 'exercise', canDown = all[i + 1]?.type === 'exercise';
+  return `<div class="row item prow" data-k="${b.code}"><button class="row between grow pdemo" data-a="demo" data-v="${b.code}" aria-label="${t('demo.watch')}: ${esc(exName(ex))}"><div class="grow left"><b>${esc(exName(ex))}</b><div class="mut xs num-s">${right}</div></div><span class="playdot">${ICON.play}</span></button>
+    <button class="pbtn" data-a="planSwap" data-v="${i}" aria-label="${t('plan.swap')}">${ICON.swap}</button>
+    <button class="pbtn" data-a="planMove" data-v="${i}" data-d="-1" aria-label="${t('plan.up')}" ${canUp ? '' : 'disabled'}>${ICON.up}</button>
+    <button class="pbtn" data-a="planMove" data-v="${i}" data-d="1" aria-label="${t('plan.down')}" ${canDown ? '' : 'disabled'}>${ICON.down}</button></div>`;
 }
 
 function viewPlan() {
@@ -511,7 +518,7 @@ function viewPlan() {
     <div><div class="kicker">${t('mode.' + p.mode).toUpperCase()}</div><h1 class="hero">${t('splitShort.' + p.split)}</h1>
       <div class="mut sm">${p.minutes} ${t('common.min')} · ${t('plan.exercises', { n })}</div></div>
     ${p.soft ? `<span class="pill">${t('home.softReturn')}</span>` : ''}
-    <div class="col list-plan">${p.blocks.map(blockRow).join('')}</div>
+    <div class="col list-plan">${p.blocks.map((b, i, all) => blockRow(b, i, all)).join('')}</div>
     <button class="cta" data-a="startSession">${t('plan.start')}</button>
   </main>`;
 }
@@ -692,7 +699,7 @@ function cardioPanel(a, b, el, running) {
     const rn = cur.seg.round ? ` · ${cur.seg.round}/${cur.seg.rounds}` : '';
     now = `<div class="cg-now ${hard ? 'hard' : ''}"><div class="cg-name">${esc(d.name)}${rn}</div>${d.speed ? `<div class="cg-speed">${esc(d.speed)}</div>` : ''}${d.incline ? `<div class="cg-inc">${esc(d.incline)}</div>` : ''}<div class="cg-left num-s" data-tick="cleft">${mmss(cur.left)}</div><div class="cg-rpe">${esc(d.rpe)} · ${esc(d.cue)}</div></div>`;
   }
-  return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started ? '' : levels}</div>`;
+  return `<div class="cg">${now}<ol class="cg-steps">${list}</ol>${started || isSwimCode(b.code) ? '' : levels}</div>`;
 }
 
 // Pantalla de cardio en marcha o en pausa: lo mínimo y muy grande, para seguirla de reojo mientras corres.
@@ -745,7 +752,7 @@ function viewTimed(a, b) {
     ${isCardio ? cardioPanel(a, b, el, running) : ''}
     <button class="cta" data-a="${running ? 'timerStop' : 'timerStart'}">${running ? t('session.stop') : t('session.start')}</button>
     ${isCardio ? `<label class="dist"><span class="mut xs">${t('session.distance')}</span><input id="f-d" type="number" inputmode="decimal" step="0.1" min="0"></label>
-      <button class="seg" data-a="endBlock">${t('session.endBlock')}</button>` : `<button class="link" data-a="skipExercise">${t('common.skip')}</button>`}
+      <div class="row gap"><button class="seg grow" data-a="endBlock">${t('session.endBlock')}</button>${tm ? '' : `<button class="seg grow" data-a="busy">${ICON.swap}<span>${t('session.change')}</span></button>`}</div>` : `<button class="link" data-a="skipExercise">${t('common.skip')}</button>`}
   </div>`;
 }
 
@@ -1319,11 +1326,12 @@ function modalHTML() {
   } else if (m.type === 'sub') {
     const cur = BY_CODE.get(m.from);
     const last = lastPerformance(S.history, m.from);
-    inner = `<h2>${t('sub.title')}</h2>
+    inner = `<h2>${t(m.planIdx != null ? 'sub.titleSwap' : 'sub.title')}</h2>
       ${m.list.length ? m.list.map((s, i) => {
         const w = suggestedWeightKg(cur, s.exercise, last?.peso_kg);
-        return `<button class="opt ${i === 0 ? 'best' : ''}" data-a="useSub" data-v="${s.exercise.code}">
-          <div class="row between"><b>${esc(exName(s.exercise))}</b>${i === 0 && !s.weak ? `<span class="acc xs">${t('sub.best')}</span>` : ''}</div>
+        const best = i === 0 && cur.kind !== 'cardio';
+        return `<button class="opt ${best ? 'best' : ''}" data-a="useSub" data-v="${s.exercise.code}">
+          <div class="row between"><b>${esc(exName(s.exercise))}</b>${best && !s.weak ? `<span class="acc xs">${t('sub.best')}</span>` : ''}</div>
           <div class="mut xs">${s.needs ? `<span class="acc">${t('sub.needs', { e: esc(equipName(s.needs)) })}</span>` : equipName(s.exercise.equipment)}${w && !s.needs ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none2')}</p>`}`;
   }
@@ -1803,12 +1811,37 @@ const A = {
   },
   skipExercise() { advanceBlock(); },
   busy() { openSub(); },
+  // Plan antes de empezar: reordenar (▲/▼) y cambiar un ejercicio sin tocar calentamiento ni vuelta a la calma.
+  planMove(el) {
+    const p = ui.plan, i = Number(el.dataset.v), d = Number(el.dataset.d);
+    if (!p || !p.blocks[i]) return;
+    const blocks = moveBlock(p.blocks, i, d);
+    if (blocks.every((b, k) => b === p.blocks[k])) return;
+    const rects = flipRects();
+    ui.plan = { ...p, blocks }; buzz(8); render(); flipAnimate(rects);
+  },
+  planSwap(el) {
+    const p = ui.plan, i = Number(el.dataset.v), b = p?.blocks[i];
+    if (!b || b.type !== 'exercise') return;
+    const cur = BY_CODE.get(b.code);
+    const doneToday = new Set(p.blocks.filter((x) => x.type === 'exercise').map((x) => x.code));
+    const list = suggestSubstitutes({ current: cur, available: available(), doneToday, minutesLeft: p.minutes, history: S.history });
+    openModal({ type: 'sub', from: cur.code, list, planIdx: i });
+  },
   useSub(el) {
-    const a = S.active, b = a.plan.blocks[a.idx];
     const to = BY_CODE.get(el.dataset.v);
+    const pi = ui.modal?.planIdx;
+    if (pi != null && ui.plan) { // desde la pantalla del plan
+      const p = ui.plan, b = p.blocks[pi];
+      if (!b || !to) return closeModal();
+      const from = BY_CODE.get(b.code);
+      ui.plan = replaceBlock(p, pi, substituteBlock(b, from, to, { lastKg: lastPerformance(S.history, b.code)?.peso_kg, mode: p.mode }));
+      ui.modal = null; render(); return;
+    }
+    const a = S.active, b = a.plan.blocks[a.idx];
     const from = BY_CODE.get(b.code);
     const last = lastPerformance(S.history, b.code);
-    a.plan.blocks[a.idx] = { ...b, code: to.code, kind: to.kind, repMin: to.repMin ?? b.repMin, repMax: to.repMax ?? b.repMax, durationS: to.durationS ?? b.durationS, fromCode: from.code, suggestKg: suggestedWeightKg(from, to, last?.peso_kg) || undefined };
+    a.plan = replaceBlock(a.plan, a.idx, substituteBlock(b, from, to, { lastKg: last?.peso_kg, mode: a.plan.mode ?? S.settings.mode }));
     ui.modal = null; persist(); render();
   },
   closeModal(el, e) {
@@ -1986,6 +2019,23 @@ function advanceBlock() {
   a.idx += 1; a.warmIdx = 0; a.warmT0 = 0; a.setNo = 1; a.restEnd = null; a.timer = null; a.cardioSecs = 0;
   if (a.idx >= a.plan.blocks.length) return finishSession();
   persist(); render(); window.scrollTo(0, 0);
+}
+
+// Animación suave al reordenar (solo transform/opacity; respeta prefers-reduced-motion).
+function flipRects() {
+  const m = new Map();
+  $app.querySelectorAll('.prow[data-k]').forEach((r) => m.set(r.dataset.k, r.getBoundingClientRect().top));
+  return m;
+}
+function flipAnimate(before) {
+  if (reduced()) return;
+  $app.querySelectorAll('.prow[data-k]').forEach((r) => {
+    const y0 = before.get(r.dataset.k);
+    if (y0 == null) return;
+    const dy = y0 - r.getBoundingClientRect().top;
+    if (!dy) return;
+    r.animate([{ transform: `translateY(${dy}px)`, opacity: 0.7 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  });
 }
 
 function openSub() {
@@ -2433,7 +2483,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '39';
+const APP_V = '40';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());

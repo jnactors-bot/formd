@@ -8,7 +8,7 @@ export const REGION_BY_CODE = new Map(CATALOG.regions.map((r) => [r.code, r]));
 
 // ---------- Equipamiento ----------
 export const EQUIPMENT_PRESETS = {
-  gym: CATALOG.equipment.map((e) => e.code),
+  gym: CATALOG.equipment.map((e) => e.code).filter((c) => c !== 'pool'), // la piscina no es de gimnasio: se marca a mano
   dumbbells: ['dumbbell', 'bodyweight', 'kettlebell'],
   bodyweight: ['bodyweight'],
   bands: ['bodyweight', 'bands'], // casa con bandas elásticas
@@ -98,8 +98,10 @@ const SLOTS = {
   ],
 };
 
-const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'treadmill_walk', 'incline_walk', 'outdoor_run'];
-const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
+// Correr sigue primero. La natación entra solo si el usuario marcó «pool» (si no, se salta); va antes de correr al aire libre
+// (que no pide equipo) para que quien SÍ marcó piscina y no tiene cinta caiga en natación y no en la calle.
+const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'treadmill_walk', 'incline_walk', 'swim_steady', 'outdoor_run'];
+const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'swim_intervals', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
 
 // Cuatro modos; cada uno se apoya en la rotación y el catálogo de uno base.
 export const MODES = ['muscle', 'strength', 'hybrid', 'fatloss'];
@@ -113,7 +115,7 @@ export const HYBRID_ROTATION = ['upper', 'lower', 'cardio_easy', 'cardio_interva
 const HARD = new Set(['lower', 'cardio_interval', 'legs']);
 // Cardio que carga fuerte las piernas (impacto): cuenta como día de piernas para el descanso.
 const LEG_IMPACT = new Set(['treadmill_intervals', 'treadmill_sprints', 'jump_rope', 'tuck_jumps', 'star_jumps', 'high_knees', 'stair_intervals']);
-const LOW_IMPACT_HIIT = ['bike_hiit', 'rower_intervals', 'elliptical_intervals'];
+const LOW_IMPACT_HIIT = ['bike_hiit', 'rower_intervals', 'elliptical_intervals', 'swim_intervals'];
 const LEG_ZONES = ['quads', 'hamstrings', 'glutes'];
 
 /** Tipo de sesión real. Las registradas a mano ('manual') se deducen de lo que se hizo, para que cuenten en la rotación y el descanso. */
@@ -521,6 +523,7 @@ export function suggestSubstitutes({ current, available, blocked = new Set(), do
   const avail = asSet(available);
   const blockedSet = blocked instanceof Set ? blocked : new Set(blocked);
   blockedSet.delete('bodyweight');
+  if (cur.kind === 'cardio') return cardioAlternatives({ cur, avail, blockedSet, doneToday, limit: Math.max(limit, 7) });
   const prim = primaryZones(cur);
   const isBlocked = (e) => blockedSet.has(e.equipment) && !(e.equipment === 'machine' && e.pattern !== cur.pattern);
   const compatKind = (e) => e.kind === cur.kind || (cur.kind === 'timed' && e.kind === 'strength') || (cur.kind === 'strength' && e.kind === 'timed' && (e.weights.abs_upper >= 0.7 || e.weights.abs_lower >= 0.7));
@@ -557,6 +560,64 @@ export function suggestSubstitutes({ current, available, blocked = new Set(), do
   }
   picked.sort((a, b) => (a.needs ? 1 : 0) - (b.needs ? 1 : 0) || b.score - a.score);
   return picked;
+}
+
+// Orden de preferencia de las alternativas de cardio (correr primero, luego natación, bici, remo…), por tipo.
+const CARDIO_ALT_EASY = ['treadmill_run_easy', 'outdoor_run', 'swim_steady', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'incline_walk', 'treadmill_walk'];
+const CARDIO_ALT_HARD = ['treadmill_intervals', 'swim_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
+const NO_IMPACT = new Set(['swim_steady', 'swim_intervals', 'bike_steady', 'bike_hiit', 'rower_steady', 'rower_intervals', 'elliptical_steady', 'elliptical_intervals', 'incline_walk', 'treadmill_walk']);
+
+/** Todas las alternativas de cardio del mismo tipo (suave con suave, intervalos con intervalos), sin filtrar por equipo: las que no tiene llevan `needs`. */
+function cardioAlternatives({ cur, avail, blockedSet, doneToday, limit }) {
+  const order = cur.pattern === 'cardio_interval' ? CARDIO_ALT_HARD : CARDIO_ALT_EASY;
+  const list = order.map((c) => BY_CODE.get(c)).filter((e) => e && e.code !== cur.code && e.pattern === cur.pattern && !blockedSet.has(e.equipment) && !doneToday.has(e.code));
+  return list.slice(0, limit).map((e, i) => ({
+    exercise: e, score: 1 - i * 0.01,
+    reason: NO_IMPACT.has(e.code) ? { es: 'Sin impacto en las piernas', en: 'No leg impact' } : { es: 'Mismo tipo de cardio', en: 'Same kind of cardio' },
+    needs: hasEquip(avail, e.equipment) ? null : e.equipment,
+  }));
+}
+
+/** Sustituye un bloque de ejercicio por otro ejercicio. En cardio mantiene la duración y recalcula el protocolo (intervalos ⇄ suave). */
+export function substituteBlock(b, from, to, { lastKg = 0, mode } = {}) {
+  if (to.kind === 'cardio' && b.kind === 'cardio') {
+    const interval = to.pattern === 'cardio_interval';
+    let dur = b.durationS || to.durationS || 1200;
+    let protocol = null;
+    if (interval) {
+      dur = Math.min(dur, 1800);
+      const fat = mode === 'fatloss';
+      const workS = b.protocol?.workS ?? (fat ? 30 : 60), easyS = b.protocol?.easyS ?? (fat ? 60 : 90);
+      const main = dur >= 900 ? dur - 480 : dur;
+      protocol = { workS, easyS, rounds: Math.max(2, Math.floor(main / (workS + easyS))) };
+    }
+    const { suggestKg, repMin, repMax, ...rest } = b;
+    return { ...rest, code: to.code, kind: 'cardio', durationS: dur, seconds: dur, protocol, why: [interval ? 'recovery' : 'interference'], fromCode: from.code };
+  }
+  return { ...b, code: to.code, kind: to.kind, repMin: to.repMin ?? b.repMin, repMax: to.repMax ?? b.repMax, durationS: to.durationS ?? b.durationS, fromCode: from.code, suggestKg: suggestedWeightKg(from, to, lastKg) || undefined };
+}
+
+/** Plan nuevo con el bloque i reemplazado; recalcula el tiempo planeado. */
+export function replaceBlock(plan, i, block) {
+  const blocks = plan.blocks.slice();
+  const old = blocks[i];
+  blocks[i] = block;
+  return { ...plan, blocks, plannedSeconds: (plan.plannedSeconds ?? 0) + (block.seconds || 0) - (old?.seconds || 0) };
+}
+
+/** Mueve el ejercicio i una posición (dir −1 sube, +1 baja). No toca calentamiento ni vuelta a la calma. Devuelve una copia. */
+export function moveBlock(blocks, i, dir) {
+  const out = blocks.slice();
+  const d = dir > 0 ? 1 : dir < 0 ? -1 : 0;
+  const j = i + d;
+  if (!d || !out[i] || !out[j] || out[i].type !== 'exercise' || out[j].type !== 'exercise') return out;
+  [out[i], out[j]] = [out[j], out[i]];
+  // «droppable» (el que se quita si falta tiempo) siempre es el último ejercicio.
+  if (out.some((b) => b.droppable)) {
+    const last = out.map((b, k) => (b.type === 'exercise' ? k : -1)).filter((k) => k >= 0).pop();
+    for (let k = 0; k < out.length; k++) if (out[k].type === 'exercise' && Boolean(out[k].droppable) !== (k === last)) out[k] = { ...out[k], droppable: k === last };
+  }
+  return out;
 }
 
 function reasonFor(cur, e) {

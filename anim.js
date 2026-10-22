@@ -49,6 +49,7 @@ export function moveKey(ex) {
   if (c === 'wrist_curl') return 'pulse';
   if (c === 'hanging_leg_raise') return 'legraise';
   if (c === 'jump_rope') return 'jump';
+  if (c === 'swim_steady' || c === 'swim_intervals') return 'swim';
   if (c === 'db_shrug') return 'shrug';
   if (c === 'straight_arm_pulldown') return 'pulldown';
   if (c === 'back_extension') return 'hinge';
@@ -89,6 +90,7 @@ export const CUES = {
   crunch: { es: ['Enrolla el torso, no tires del cuello.', 'Exhala al subir.', 'Baja controlado.'], en: ['Curl the torso, do not pull the neck.', 'Exhale on the way up.', 'Lower under control.'] },
   run: { es: ['Postura alta y relajada.', 'Pasos cortos y rápidos.', 'Respira de forma constante.'], en: ['Tall, relaxed posture.', 'Short, quick steps.', 'Breathe steadily.'] },
   jump: { es: ['Salta con las puntas de los pies.', 'Muñecas hacen el giro, no los hombros.', 'Ritmo constante.'], en: ['Jump on the balls of the feet.', 'Wrists turn the rope, not the shoulders.', 'Keep a steady rhythm.'] },
+  swim: { es: ['Cuerpo largo y alineado, mirada al fondo.', 'Exhala bajo el agua, respira sin prisa.', 'Brazada larga; patada suave desde la cadera.'], en: ['Long, aligned body, eyes down.', 'Exhale underwater, breathe without rushing.', 'Long stroke; gentle kick from the hips.'] },
   pulse: { es: ['Mantén el abdomen firme.', 'Respira sin contener el aire.', 'Calidad antes que cantidad.'], en: ['Keep your abs braced.', 'Breathe, do not hold your breath.', 'Quality over quantity.'] },
 };
 
