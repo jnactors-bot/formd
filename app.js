@@ -3,7 +3,7 @@
 // respuesta al toque (no al soltar), vibración suave y regreso disponible en todas las pantallas.
 import { CATALOG } from './catalog.js';
 import {
-  BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, baseMode, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
+  BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, LEG_PREFS, baseMode, legPrefOf, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad, moveBlock, substituteBlock, replaceBlock,
   REST_OPTIONS, bumpRestAdj, effectiveRest, plannedSecondsWith, PERIOD_DAYS, MUSCLE_GROUPS, mondayOf, periodBuckets, regionSetsByDay, sessionExerciseCounts, setsByMuscleGroup, topExercises,
@@ -968,6 +968,7 @@ function viewProfile() {
       <div class="rowitem"><span>${t('profile.mode')}</span><div class="row gap"><select class="seg selmode" data-a="changeModeSel" aria-label="${t('profile.mode')}">${MODES.map((m) => `<option value="${m}" ${S.settings.mode === m ? 'selected' : ''}>${t('mode.' + m)}</option>`).join('')}</select></div></div>
       <div class="rowitem"><span>${t('profile.rest')}</span><div class="row gap"><select class="seg selmode" data-a="setRestOverride" aria-label="${t('profile.rest')}"><option value="" ${S.settings.restOverride ? '' : 'selected'}>${t('profile.restPlan')}</option>${REST_OPTIONS.map((v) => `<option value="${v}" ${S.settings.restOverride === v ? 'selected' : ''}>${restFmt(v)}</option>`).join('')}</select></div></div>
       <div class="rowitem"><span>${t('profile.sex')}</span><div class="row gap">${['male', 'female'].map((x) => `<button class="seg ${(S.settings.sex ?? 'male') === x ? 'on' : ''}" data-a="setSex" data-v="${x}">${t('sex.' + x)}</button>`).join('')}</div></div>
+      <div class="rowitem"><span>${t('profile.legs')}</span><div class="row gap">${LEG_PREFS.map((x) => `<button class="seg ${legPrefOf(S.settings) === x ? 'on' : ''}" data-a="setLegPref" data-v="${x}">${t('legs.' + x)}</button>`).join('')}</div></div>
       <div class="rowitem"><span>${t('profile.unit')}</span>${unitToggle()}</div>
       <div class="rowitem"><span>${t('profile.lang')}</span><div class="row gap">${['es', 'en'].map((l) => `<button class="seg ${lang() === l ? 'on' : ''}" data-a="setLang" data-v="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
       ${rowSheet('openWeekCfg', t('profile.week'), `<span class="mut sm">${(S.settings.week ?? DEFAULT_WEEK).min}–${(S.settings.week ?? DEFAULT_WEEK).max}</span>`)}
@@ -1439,6 +1440,7 @@ const A = {
   pickSex(el) { ui.pickSex = el.dataset.v; buzz(10); render(); },
   confirmSex() { S.settings.sex = ui.pickSex ?? S.settings.sex ?? 'male'; ui.onbStep = 3; ui.dir = 'fwd'; persist(); render(); },
   setSex(el) { S.settings.sex = el.dataset.v; persist(); render(); },
+  setLegPref(el) { if (LEG_PREFS.includes(el.dataset.v)) { S.settings.legPref = el.dataset.v; persist(); render(); } },
   setLang(el) { S.settings.lang = el.dataset.v; setLang(el.dataset.v); persist(); render(); },
   setUnit(el) { S.settings.unit = el.dataset.v; persist(); render(); },
   preset(el) { S.settings.equipment = [...EQUIPMENT_PRESETS[el.dataset.v]]; persist(); render(); },
@@ -1702,7 +1704,7 @@ const A = {
   makePlan() {
     const sug = suggestToday(agendaArgs());
     const split = ui.splitOverride ?? sug.split;
-    ui.plan = makePlan({ mode: S.settings.mode, minutes: ui.minutes, available: available(), history: S.history, split, soft: needsSoftReturn(S.history, Date.now()) });
+    ui.plan = makePlan({ mode: S.settings.mode, minutes: ui.minutes, available: available(), history: S.history, split, soft: needsSoftReturn(S.history, Date.now()), legPref: legPrefOf(S.settings) });
     ui.plan.tired = (sug.rank.find((r) => r.split === split)?.tired) ?? [];
     if (!ui.plan.blocks.some((b) => b.type === 'exercise')) return toast(lang() === 'en' ? 'No exercises with your gear' : 'Sin ejercicios con tu equipo');
     go('plan');
@@ -1827,7 +1829,7 @@ const A = {
     if (!b || b.type !== 'exercise') return;
     const cur = BY_CODE.get(b.code);
     const doneToday = new Set(p.blocks.filter((x) => x.type === 'exercise').map((x) => x.code));
-    const list = suggestSubstitutes({ current: cur, available: available(), doneToday, minutesLeft: p.minutes, history: S.history });
+    const list = suggestSubstitutes({ current: cur, available: available(), doneToday, minutesLeft: p.minutes, history: S.history, legPref: legPrefOf(S.settings) });
     openModal({ type: 'sub', from: cur.code, list, planIdx: i });
   },
   useSub(el) {
@@ -1863,7 +1865,7 @@ const A = {
   },
   addExtra() {
     const a = S.active;
-    const ex = extraExercise(a.plan, available(), a.mode);
+    const ex = extraExercise(a.plan, available(), a.mode, S.history);
     if (ex) a.plan.blocks.splice(a.plan.blocks.length - 1, 0, ex);
     ui.hintDismissed = a.sets.length; persist(); render();
   },
@@ -2045,7 +2047,7 @@ function openSub() {
   const cur = BY_CODE.get(b.code);
   const doneToday = new Set(a.sets.map((x) => x.ejercicio_code));
   const remaining = Math.max(0, a.plan.plannedSeconds - elapsedS(a)) / 60;
-  const list = suggestSubstitutes({ current: cur, available: available(), blocked: new Set([cur.equipment]), doneToday, minutesLeft: remaining, history: S.history });
+  const list = suggestSubstitutes({ current: cur, available: available(), blocked: new Set([cur.equipment]), doneToday, minutesLeft: remaining, history: S.history, legPref: legPrefOf(S.settings) });
   openModal({ type: 'sub', from: cur.code, list });
 }
 
@@ -2485,7 +2487,7 @@ function splashOnce() {
 }
 
 // ---------- Actualizaciones: la app avisa y se actualiza sola (en iPhone la versión vieja se queda en memoria) ----------
-const APP_V = '41';
+const APP_V = '42';
 async function applyUpdate() {
   try {
     (await navigator.serviceWorker?.getRegistrations())?.forEach((r) => r.unregister());
