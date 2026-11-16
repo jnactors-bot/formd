@@ -39,6 +39,8 @@ const NON_TREADMILL = {
   elliptical_intervals: { es: 'Fuerte: más resistencia y velocidad.', en: 'Hard: more resistance and speed.' },
   stair_climber: { es: 'Paso constante, sin apoyarte en las barras.', en: 'Steady steps, without leaning on the bars.' },
   stair_intervals: { es: 'Fuerte: sube el ritmo de los escalones.', en: 'Hard: speed up the steps.' },
+  outdoor_walk: { es: 'Ritmo moderado: puedes hablar en frases, pero no cantar. Terreno plano, sin cuestas.', en: 'Moderate pace: you can speak in sentences but not sing. Flat terrain, no hills.' },
+  outdoor_bike: { es: 'Ritmo moderado: puedes hablar en frases, pero no cantar. Asiento alto (pierna casi estirada abajo), marcha ligera y terreno plano.', en: 'Moderate pace: you can speak in sentences but not sing. High saddle (leg almost straight at the bottom), light gear and flat terrain.' },
 };
 
 const TREADMILL = new Set(['treadmill_run_easy', 'treadmill_intervals', 'treadmill_sprints', 'incline_walk', 'treadmill_walk', 'outdoor_run']);
@@ -165,6 +167,7 @@ export const fmtDur = (s) => (s % 60 === 0 ? `${s / 60}′` : s < 60 ? `${s}″`
 // Nota breve del porqué de la prescripción según el modo (honesta con la evidencia).
 export function modeNote(code, mode, level, lang = 'es') {
   const L = lang === 'en' ? 'en' : 'es';
+  if (mode === 'gentle') return L === 'en' ? 'Gentle mode: easy continuous cardio at a moderate pace (you can speak in sentences but not sing), on flat ground. On the bike use a high saddle and a light gear to spare your knees.' : 'Modo suave: cardio continuo y fácil a ritmo moderado (puedes hablar en frases, pero no cantar), en terreno plano. En bici, asiento alto y marcha ligera para cuidar las rodillas.';
   if (mode === 'fatloss') return L === 'en' ? 'Fat loss: what counts most is total weekly effort and your calorie balance. This is sustainable cardio that spares your joints.' : 'Bajar de peso: lo que más cuenta es el esfuerzo total de la semana y tu balance de calorías. Cardio sostenible y que cuida tus articulaciones.';
   if (mode === 'strength' || mode === 'muscle') return L === 'en' ? 'Short and easy so it does not get in the way of your lifting. Better on a different day than legs.' : 'Corto y suave para no estorbar tus pesas. Mejor en un día distinto al de piernas.';
   if (level === 'beginner' && RUN_CODES.has(code)) return L === 'en' ? 'Hybrid: you build running step by step. Each run session moves you one step up.' : 'Híbrido: vas construyendo la carrera por escalones. Cada sesión de carrera te sube un escalón.';

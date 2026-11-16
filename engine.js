@@ -2,7 +2,7 @@
 // Sin DOM ni red: se prueba en Node (web/test/engine.test.mjs).
 import { CATALOG } from './catalog.js';
 
-export const TIMES = [15, 30, 45, 60, 90];
+export const TIMES = [15, 20, 30, 45, 60, 90];
 export const BY_CODE = new Map(CATALOG.exercises.map((e) => [e.code, e]));
 export const REGION_BY_CODE = new Map(CATALOG.regions.map((r) => [r.code, r]));
 
@@ -78,6 +78,16 @@ const SLOTS = {
     { role: 'accessory', pick: L.calf2 },
     { role: 'accessory', pick: L.core },
   ],
+  // Suave (gentle): cuerpo completo, solo peso corporal, sin impacto, zancadas ni sentadilla profunda; amable con la rodilla.
+  full: [
+    { role: 'compound', pick: ['chair_sit_stand'] },
+    { role: 'compound', pick: ['glute_bridge'] },
+    { role: 'compound', pick: ['incline_pushup'] },
+    { role: 'compound', pick: ['floor_back_extension'] },
+    { role: 'accessory', pick: ['clamshell'] },
+    { role: 'accessory', pick: ['dead_bug'] },
+    { role: 'accessory', pick: ['bw_calf_raise'] },
+  ],
   // Híbrido: sesiones de fuerza más cortas y generales.
   upper: [
     { role: 'compound', pick: L.pressFlat },
@@ -103,16 +113,28 @@ const SLOTS = {
 const CARDIO_EASY = ['treadmill_run_easy', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'treadmill_walk', 'incline_walk', 'swim_steady', 'outdoor_run'];
 const CARDIO_HARD = ['treadmill_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'swim_intervals', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
 
-// Cuatro modos; cada uno se apoya en la rotación y el catálogo de uno base.
-export const MODES = ['muscle', 'strength', 'hybrid', 'fatloss'];
-export const MODE_BASE = { muscle: 'muscle', strength: 'muscle', hybrid: 'hybrid', fatloss: 'hybrid' };
+// Cinco modos; cada uno se apoya en la rotación y el catálogo de uno base. «gentle» = suave: cuerpo completo + cardio continuo, sin impacto.
+export const MODES = ['muscle', 'strength', 'hybrid', 'fatloss', 'gentle'];
+export const MODE_BASE = { muscle: 'muscle', strength: 'muscle', hybrid: 'hybrid', fatloss: 'hybrid', gentle: 'hybrid' };
 export const baseMode = (mode) => MODE_BASE[mode] ?? 'muscle';
 // Fuerza: pocas repeticiones, descansos largos. Bajar grasa: más repeticiones y descansos cortos, con cardio.
-const MODE_TUNE = { strength: { repMin: 3, repMax: 6, rest: [180, 120], maxSets: 5, compoundOnly: true, rir: 2 }, fatloss: { repMin: 10, repMax: 15, rest: [45, 40], maxSets: 3, rir: 2 } };
+// `rir` solo se fija en gentle (3 repeticiones en reserva); los demás modos conservan compuesto 2 / accesorio 1.
+const MODE_TUNE = { strength: { repMin: 3, repMax: 6, rest: [180, 120], maxSets: 5, compoundOnly: true }, fatloss: { repMin: 10, repMax: 15, rest: [45, 40], maxSets: 3 }, gentle: { repMin: 8, repMax: 12, rest: [60, 45], maxSets: 2, rir: 3 } };
 export const MUSCLE_ROTATION = ['push', 'pull', 'legs'];
 // Orden pensado para las piernas: piernas → cardio suave (sin impacto) → HIIT (ya con 48 h de descanso) → superior → piernas.
 export const HYBRID_ROTATION = ['upper', 'lower', 'cardio_easy', 'cardio_interval'];
+// Suave: cuerpo completo ⇄ cardio continuo. Ninguna es «dura» (HARD) ni hay intervalos.
+export const GENTLE_ROTATION = ['full', 'cardio_easy'];
 const HARD = new Set(['lower', 'cardio_interval', 'legs']);
+// Cardio de gentle: solo continuo y suave. Primero lo de afuera (caminata, bici), luego lo sin impacto si hay equipo. Nunca correr ni escaladora.
+const CARDIO_GENTLE = ['outdoor_walk', 'outdoor_bike', 'bike_steady', 'treadmill_walk', 'elliptical_steady', 'swim_steady', 'rower_steady', 'incline_walk'];
+// Prohibido en gentle: saltos, zancadas, subidas a banco, sentadillas (salvo sentarse y levantarse de la silla), burpees, escaladores, intervalos, correr y escaladora.
+const GENTLE_OK = new Set(['chair_sit_stand']);
+const GENTLE_AVOID_RE = /jump|lunge|step_up|stepup|split_squat|squat|burpee|mountain|pistol|hops|tuck|star_|skipping|high_knees|sprint|stair|outdoor_run|treadmill_run|thruster|swing|snatch|clean|box_|plyo|bound/;
+const gentleAvoidTest = (e) => !GENTLE_OK.has(e.code) && (GENTLE_AVOID_RE.test(e.code) || e.pattern === 'lunge' || e.pattern === 'cardio_interval');
+export const GENTLE_AVOID = new Set(CATALOG.exercises.filter(gentleAvoidTest).map((e) => e.code));
+/** ¿Se puede proponer este ejercicio en este modo? (gentle excluye GENTLE_AVOID). */
+export const modeAllows = (mode, code) => mode !== 'gentle' || !GENTLE_AVOID.has(code);
 // Cardio que carga fuerte las piernas (impacto): cuenta como día de piernas para el descanso.
 const LEG_IMPACT = new Set(['treadmill_intervals', 'treadmill_sprints', 'jump_rope', 'tuck_jumps', 'star_jumps', 'high_knees', 'stair_intervals']);
 const LOW_IMPACT_HIIT = ['bike_hiit', 'rower_intervals', 'elliptical_intervals', 'swim_intervals'];
@@ -128,9 +150,11 @@ export function effectiveSplit(s, mode) {
     if (ex.kind === 'cardio') { if (CARDIO_HARD.includes(ex.code)) hard = true; else easy = true; continue; }
     for (const [r, w] of Object.entries(ex.weights)) { if (LEG_ZONES.includes(r) || r === 'calves') leg += w; else up += w; }
   }
-  if (hard) return 'cardio_interval';
+  const gentle = (mode ?? s.modo) === 'gentle';
+  if (hard) return gentle ? 'cardio_easy' : 'cardio_interval';
   if (easy && !leg && !up) return 'cardio_easy';
   if (!leg && !up) return null;
+  if (gentle) return 'full';
   const lower = leg >= up;
   return baseMode(mode ?? s.modo) === 'hybrid' ? (lower ? 'lower' : 'upper') : (lower ? 'legs' : 'push');
 }
@@ -174,6 +198,56 @@ export const EVIDENCE_TITLE = {
   interference: { es: 'Interferencia', en: 'Interference' },
   recovery: { es: 'Recuperación', en: 'Recovery' },
 };
+
+// Fichas de salud y hábitos (modo suave, Logros). Llevan cita: `cites` = [{ cite, url }]; `consensus` = práctica clínica sin cita formal.
+Object.assign(EVIDENCE, {
+  anyAmount: { level: 'A', cites: [{ cite: 'Bull et al., Br J Sports Med 2020', url: 'https://doi.org/10.1136/bjsports-2020-102955' }],
+    es: 'La OMS recomienda 150–300 min por semana de actividad moderada y fuerza al menos 2 días. Ya no exige bloques mínimos de 10 min: las sesiones cortas suman.',
+    en: 'WHO recommends 150–300 min per week of moderate activity plus strength work on at least 2 days. It no longer requires a minimum 10-minute bout: short sessions add up.' },
+  weight: { level: 'B', cites: [{ cite: 'Donnelly et al., Med Sci Sports Exerc 2009', url: 'https://pubmed.ncbi.nlm.nih.gov/19127177/' }],
+    es: 'Con menos de 150 min por semana, el ejercicio solo produce una pérdida de peso mínima; con más, modesta (unos 2–3 kg). Los mejores resultados vienen de combinar ejercicio y alimentación.',
+    en: 'With under 150 min per week, exercise alone produces only minimal weight loss; with more, modest loss (about 2–3 kg). The best results come from combining exercise and diet.' },
+  knee: { level: 'A', cites: [{ cite: 'NICE NG226 (2022)', url: 'https://www.nice.org.uk/guidance/ng226' }, { cite: 'Bannuru et al., Osteoarthritis Cartilage 2019', url: 'https://pubmed.ncbi.nlm.nih.gov/31278997/' }],
+    es: 'Las guías recomiendan ejercicio de fuerza y aeróbico para el dolor de rodilla por artrosis. El dolor puede aumentar un poco al empezar, y el ejercicio bien dosificado no daña la articulación.',
+    en: 'Guidelines recommend strengthening and aerobic exercise for knee osteoarthritis pain. Pain may rise a little at the start, and well-dosed exercise does not damage the joint.' },
+  painRule: { level: 'C', consensus: true,
+    es: 'Como guía práctica, una molestia de hasta 3–5 sobre 10 se considera aceptable. Más que eso, o un dolor que aumenta de una semana a otra, pide bajar la carga y consultar.',
+    en: 'As a practical rule, discomfort up to 3–5 out of 10 is considered acceptable. More than that, or pain that grows from week to week, calls for lowering the load and seeking advice.' },
+  pace: { level: 'B', cites: [{ cite: 'ACSM; Sports Med 2022', url: 'https://doi.org/10.1007/s40279-022-01690-3' }],
+    es: 'Ritmo moderado: puedes hablar en frases pero no cantar. Equivale a un esfuerzo percibido de 12–13 en la escala de Borg 6–20.',
+    en: 'Moderate pace: you can talk in sentences but not sing. It matches a perceived effort of 12–13 on the Borg 6–20 scale.' },
+  strengthEasy: { level: 'B', cites: [{ cite: 'Ratamess et al., Med Sci Sports Exerc 2009', url: 'https://pubmed.ncbi.nlm.nih.gov/19204579/' }, { cite: 'Refalo et al., Sports Med 2023', url: 'https://pubmed.ncbi.nlm.nih.gov/36334240/' }],
+    es: 'Para empezar bastan 2–3 días por semana con 8–12 repeticiones. Quedarse a unas repeticiones del fallo da ganancias de fuerza similares.',
+    en: 'To start, 2–3 days per week of 8–12 reps is enough. Stopping a few reps short of failure gives similar strength gains.' },
+  rewards: { level: 'B', cites: [{ cite: 'Michie et al., Health Psychol 2009', url: 'https://pubmed.ncbi.nlm.nih.gov/19916637/' }, { cite: 'Patel et al., JAMA Intern Med 2019', url: 'https://pubmed.ncbi.nlm.nih.gov/31498375/' }],
+    es: 'Registrar tu actividad y ponerte metas es la técnica más asociada con mantener el ejercicio. Los juegos con puntos y niveles aumentaron la actividad en ensayos clínicos (efecto pequeño a medio).',
+    en: 'Self-monitoring and goal setting are the techniques most associated with keeping up exercise. Games with points and levels increased activity in clinical trials (small to medium effect).' },
+  habit: { level: 'B', cites: [{ cite: 'Lally et al., Eur J Soc Psychol 2010', url: 'https://doi.org/10.1002/ejsp.674' }],
+    es: 'En un estudio, la mediana para que un hábito se volviera automático fue de 66 días (rango 18–254). Fallar un día suelto no lo arruinó.',
+    en: 'In one study, the median time for a habit to become automatic was 66 days (range 18–254). Missing a single day did not ruin it.' },
+  cravings: { level: 'B', cites: [{ cite: 'Taylor et al., Addiction 2007', url: 'https://pubmed.ncbi.nlm.nih.gov/17286639/' }, { cite: 'Ussher et al., Cochrane 2019', url: 'https://www.cochrane.org/CD002295' }],
+    es: 'Unos minutos de ejercicio (incluso unos 5) reducen las ganas de fumar durante un rato. Por sí solo no se ha demostrado que ayude a dejarlo a largo plazo: busca apoyo profesional.',
+    en: 'A few minutes of exercise (even about 5) reduce cigarette cravings for a while. On its own it has not been shown to help quitting in the long run: seek professional support.' },
+  sleep: { level: 'B', cites: [{ cite: 'Al Khatib et al., Eur J Clin Nutr 2017', url: 'https://doi.org/10.1038/ejcn.2016.201' }],
+    es: 'En estudios de laboratorio, dormir poco aumentó la ingesta del día siguiente sin aumentar el gasto de energía.',
+    en: 'In laboratory studies, short sleep increased next-day food intake without increasing energy expenditure.' },
+});
+Object.assign(EVIDENCE_TITLE, {
+  anyAmount: { es: 'Cualquier cantidad cuenta', en: 'Every bit counts' },
+  weight: { es: 'Peso: expectativas honestas', en: 'Weight: honest expectations' },
+  knee: { es: 'Rodilla: moverse ayuda', en: 'Knee: moving helps' },
+  painRule: { es: 'Regla del dolor', en: 'The pain rule' },
+  pace: { es: 'Ritmo moderado', en: 'Moderate pace' },
+  strengthEasy: { es: 'Fuerza sin llegar al fallo', en: 'Strength without going to failure' },
+  rewards: { es: 'Por qué hay premios', en: 'Why there are rewards' },
+  habit: { es: 'El hábito tarda', en: 'Habits take time' },
+  cravings: { es: 'Ganas de fumar', en: 'Cigarette cravings' },
+  sleep: { es: 'Dormir poco abre el apetito', en: 'Short sleep raises appetite' },
+});
+/** Tarjetas de salud y hábitos (dato del día en modo suave, sección Logros). */
+export const HEALTH_FACTS = ['anyAmount', 'painRule', 'pace', 'strengthEasy', 'knee', 'weight', 'habit', 'rewards', 'sleep', 'cravings'];
+/** Citas de una ficha: [{ cite, url }] (acepta también `cite` + `url` sueltos). */
+export const citesOf = (e) => e?.cites ?? (e?.cite ? [{ cite: e.cite, url: e.url }] : []);
 
 export const FACTS =['proximity', 'rest', 'reps', 'order', 'frequency', 'zones', 'interference', 'recovery'];
 
@@ -238,7 +312,7 @@ function pickExercise(slot, available, used, mode, rot = null) {
   const cands = [];
   for (const code of slot.pick) {
     const ex = BY_CODE.get(code);
-    if (!ex || used.has(code)) continue;
+    if (!ex || used.has(code) || !modeAllows(mode, code)) continue;
     if (!hasEquip(avail, ex.equipment)) continue;
     if (!ex.modes.includes(base)) continue;
     cands.push(ex);
@@ -257,7 +331,7 @@ function pickExercise(slot, available, used, mode, rot = null) {
   if (!ref) return null;
   let best = null, bestScore = 0;
   for (const e of CATALOG.exercises) {
-    if (used.has(e.code) || e.kind !== ref.kind || !e.bodyweight || !e.modes.includes(base) || !hasEquip(avail, e.equipment)) continue;
+    if (used.has(e.code) || !modeAllows(mode, e.code) || e.kind !== ref.kind || !e.bodyweight || !e.modes.includes(base) || !hasEquip(avail, e.equipment)) continue;
     const sc = regionSimilarity(ref, e);
     if (sc > bestScore) { best = e; bestScore = sc; }
   }
@@ -278,7 +352,7 @@ export function cooldownMinutes(minutes) {
 
 // ---------- Elección de sesión del día ----------
 export function nextSplit(mode, history) {
-  const order = baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION;
+  const order = rotationFor(mode);
   const done = [...history].filter((s) => s.modo === mode).map((s) => ({ s, sp: effectiveSplit(s, mode) })).filter((x) => x.sp && order.includes(x.sp));
   done.sort((a, b) => String(b.s.fecha).localeCompare(String(a.s.fecha)));
   if (!done.length) return order[0];
@@ -336,20 +410,23 @@ export function weeklyLoad(history, now = Date.now()) {
 export function makePlan({ mode, minutes, available, history = [], split, now = Date.now(), soft = false, legPref = 'free' }) {
   const avail = available instanceof Set ? available : new Set(available);
   const rot = recencyMap(history);
-  const chosen = split ?? nextSplit(mode, history);
+  let chosen = split ?? nextSplit(mode, history);
+  // Suave: solo existen «full» y cardio continuo; cualquier otro tipo se convierte (nunca intervalos).
+  if (mode === 'gentle' && !GENTLE_ROTATION.includes(chosen)) chosen = chosen === 'cardio_interval' ? 'cardio_easy' : 'full';
   const warmup = warmupMinutes(minutes);
   const cooldown = cooldownMinutes(minutes);
   const budget = Math.max(60, (minutes - warmup - cooldown) * 60);
   const blocks = [];
   const why = new Set(['proximity']);
-  const warnings = baseMode(mode) === 'hybrid' ? hybridWarnings(history, chosen, now) : [];
+  const warnings = baseMode(mode) === 'hybrid' && mode !== 'gentle' ? hybridWarnings(history, chosen, now) : [];
 
   blocks.push({ type: 'warmup', minutes: warmup, seconds: warmup * 60 });
 
   if (chosen === 'cardio_easy' || chosen === 'cardio_interval') {
     const fat = mode === 'fatloss';
     // Bajar de peso: caminata inclinada primero (sostenible y de bajo impacto). Híbrido: carrera suave primero.
-    const easy = fat ? ['incline_walk', ...CARDIO_EASY.filter((c) => c !== 'incline_walk')] : CARDIO_EASY;
+    const gentle = mode === 'gentle';
+    const easy = gentle ? CARDIO_GENTLE : fat ? ['incline_walk', ...CARDIO_EASY.filter((c) => c !== 'incline_walk')] : CARDIO_EASY;
     const legsTired = legHours(history, now) < 48;
     // Si las piernas aún están cargadas (<48 h), el HIIT va en bici, remo o elíptica (sin impacto) en vez de correr.
     const hard = legsTired ? [...LOW_IMPACT_HIIT, ...CARDIO_HARD.filter((c) => !LOW_IMPACT_HIIT.includes(c))] : CARDIO_HARD;
@@ -373,8 +450,8 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
       // Si sobra tiempo, se completa con otro tipo de ejercicio (core y, con mucho tiempo, brazos/espalda alta) en vez de alargar el cardio.
       let left = budget - dur;
       if (left >= 600) {
-        const extra = [{ role: 'accessory', pick: L.core }, { role: 'accessory', pick: L.core2 }];
-        if (left >= 1500) extra.push({ role: 'accessory', pick: L.rear }, { role: 'accessory', pick: L.biceps }, { role: 'accessory', pick: L.triceps });
+        const extra = gentle ? [{ role: 'accessory', pick: ['dead_bug', 'plank'] }, { role: 'accessory', pick: ['clamshell', 'side_plank'] }] : [{ role: 'accessory', pick: L.core }, { role: 'accessory', pick: L.core2 }];
+        if (left >= 1500 && !gentle) extra.push({ role: 'accessory', pick: L.rear }, { role: 'accessory', pick: L.biceps }, { role: 'accessory', pick: L.triceps });
         const usedX = new Set(), trial = [];
         for (const slot of extra) {
           const x = pickExercise(slot, avail, usedX, mode, rot);
@@ -416,7 +493,7 @@ export function makePlan({ mode, minutes, available, history = [], split, now = 
       for (const { slot, ex } of candidates) {
         const compound = slot.role === 'compound';
         const rest = compound ? t.compound : t.accessory;
-        const sets = Math.min(tune?.compoundOnly ? 5 : ex.sets, t.maxSets, tune?.compoundOnly ? 5 : compound ? 4 : 3);
+        const sets = Math.min(tune?.compoundOnly ? 5 : ex.sets, t.maxSets, tune?.compoundOnly ? 5 : compound ? 4 : 3, mode === 'gentle' ? tune.maxSets : 9);
         const sec = exerciseSeconds(sets, rest, 'strength');
         if (spent + sec > budget) {
           // intenta con 2 series antes de saltarlo
@@ -469,7 +546,7 @@ function toBlocks(trial, tune) {
     repMin: tune ? tune.repMin : ex.repMin,
     repMax: tune ? tune.repMax : ex.repMax,
     restS: rest,
-    rir: slot.role === 'compound' ? 2 : 1,
+    rir: tune?.rir ?? (slot.role === 'compound' ? 2 : 1),
     durationS: ex.durationS,
     seconds: sec,
     role: slot.role,
@@ -555,17 +632,17 @@ const isLegEx = (e) => LEG_ZONES.some((z) => (e.weights[z] ?? 0) >= 0.7);
  * opciones que necesitan otro equipo, marcadas con `needs` (código del equipo). El equipo `blocked` (máquina ocupada)
  * se excluye por completo. Devuelve [] solo si de verdad no existe ninguna alternativa en el catálogo.
  */
-export function suggestSubstitutes({ current, available, blocked = new Set(), doneToday = new Set(), minutesLeft = 30, history = [], limit = 7, legPref = 'free' }) {
+export function suggestSubstitutes({ current, available, blocked = new Set(), doneToday = new Set(), minutesLeft = 30, history = [], limit = 7, legPref = 'free', mode }) {
   const cur = typeof current === 'string' ? BY_CODE.get(current) : current;
   const avail = asSet(available);
   const blockedSet = blocked instanceof Set ? blocked : new Set(blocked);
   blockedSet.delete('bodyweight');
-  if (cur.kind === 'cardio') return cardioAlternatives({ cur, avail, blockedSet, doneToday, limit: Math.max(limit, 7) });
+  if (cur.kind === 'cardio') return cardioAlternatives({ cur, avail, blockedSet, doneToday, limit: Math.max(limit, 7), mode });
   const prim = primaryZones(cur);
   const isBlocked = (e) => blockedSet.has(e.equipment) && !(e.equipment === 'machine' && e.pattern !== cur.pattern);
   const compatKind = (e) => e.kind === cur.kind || (cur.kind === 'timed' && e.kind === 'strength') || (cur.kind === 'strength' && e.kind === 'timed' && (e.weights.abs_upper >= 0.7 || e.weights.abs_lower >= 0.7));
   const base = CATALOG.exercises.filter((e) =>
-    e.code !== cur.code && compatKind(e) && !isBlocked(e) && !doneToday.has(e.code) &&
+    e.code !== cur.code && modeAllows(mode, e.code) && compatKind(e) && !isBlocked(e) && !doneToday.has(e.code) &&
     e.modes.some((m) => cur.modes.includes(m)));
   const share = (min) => base.filter((e) => prim.some((r) => (e.weights[r] ?? 0) >= min));
   let pool = share(0.7);
@@ -603,14 +680,16 @@ export function suggestSubstitutes({ current, available, blocked = new Set(), do
 }
 
 // Orden de preferencia de las alternativas de cardio (correr primero, luego natación, bici, remo…), por tipo.
-const CARDIO_ALT_EASY = ['treadmill_run_easy', 'outdoor_run', 'swim_steady', 'bike_steady', 'rower_steady', 'elliptical_steady', 'stair_climber', 'incline_walk', 'treadmill_walk'];
+const CARDIO_ALT_EASY = ['treadmill_run_easy', 'outdoor_run', 'outdoor_walk', 'swim_steady', 'bike_steady', 'outdoor_bike', 'rower_steady', 'elliptical_steady', 'stair_climber', 'incline_walk', 'treadmill_walk'];
 const CARDIO_ALT_HARD = ['treadmill_intervals', 'swim_intervals', 'bike_hiit', 'rower_intervals', 'elliptical_intervals', 'stair_intervals', 'treadmill_sprints', 'jump_rope', 'mountain_climbers', 'star_jumps', 'high_knees', 'tuck_jumps'];
-const NO_IMPACT = new Set(['swim_steady', 'swim_intervals', 'bike_steady', 'bike_hiit', 'rower_steady', 'rower_intervals', 'elliptical_steady', 'elliptical_intervals', 'incline_walk', 'treadmill_walk']);
+const NO_IMPACT = new Set(['swim_steady', 'swim_intervals', 'bike_steady', 'bike_hiit', 'rower_steady', 'rower_intervals', 'elliptical_steady', 'elliptical_intervals', 'incline_walk', 'treadmill_walk', 'outdoor_walk', 'outdoor_bike']);
 
 /** Todas las alternativas de cardio del mismo tipo (suave con suave, intervalos con intervalos), sin filtrar por equipo: las que no tiene llevan `needs`. */
-function cardioAlternatives({ cur, avail, blockedSet, doneToday, limit }) {
-  const order = cur.pattern === 'cardio_interval' ? CARDIO_ALT_HARD : CARDIO_ALT_EASY;
-  const list = order.map((c) => BY_CODE.get(c)).filter((e) => e && e.code !== cur.code && e.pattern === cur.pattern && !blockedSet.has(e.equipment) && !doneToday.has(e.code));
+function cardioAlternatives({ cur, avail, blockedSet, doneToday, limit, mode }) {
+  // Suave: solo continuo (nunca intervalos, correr ni escaladora), con lo de afuera primero.
+  const gentle = mode === 'gentle';
+  const order = gentle ? CARDIO_GENTLE : cur.pattern === 'cardio_interval' ? CARDIO_ALT_HARD : CARDIO_ALT_EASY;
+  const list = order.map((c) => BY_CODE.get(c)).filter((e) => e && e.code !== cur.code && modeAllows(mode, e.code) && e.pattern === (gentle ? 'cardio_steady' : cur.pattern) && !blockedSet.has(e.equipment) && !doneToday.has(e.code));
   return list.slice(0, limit).map((e, i) => ({
     exercise: e, score: 1 - i * 0.01,
     reason: NO_IMPACT.has(e.code) ? { es: 'Sin impacto en las piernas', en: 'No leg impact' } : { es: 'Mismo tipo de cardio', en: 'Same kind of cardio' },
@@ -620,6 +699,7 @@ function cardioAlternatives({ cur, avail, blockedSet, doneToday, limit }) {
 
 /** Sustituye un bloque de ejercicio por otro ejercicio. En cardio mantiene la duración y recalcula el protocolo (intervalos ⇄ suave). */
 export function substituteBlock(b, from, to, { lastKg = 0, mode } = {}) {
+  if (!modeAllows(mode, to.code)) return b; // gentle: nunca cambia a impacto, zancada o intervalos
   if (to.kind === 'cardio' && b.kind === 'cardio') {
     const interval = to.pattern === 'cardio_interval';
     let dur = b.durationS || to.durationS || 1200;
@@ -758,7 +838,7 @@ const sessionMs = (s) => new Date(s.fecha).getTime();
 
 export const DEFAULT_WEEK = { days: [0, 1, 2, 3, 4], min: 3, max: 4 };
 export const REST_HOURS = 48;
-const WEEK_TARGET = { muscle: 6, strength: 4, hybrid: 4, fatloss: 5 };
+const WEEK_TARGET = { muscle: 6, strength: 4, hybrid: 4, fatloss: 5, gentle: 3 };
 
 const regionsCache = new Map();
 /** Zonas principales (peso >= 0,7) de un tipo de sesión con el equipo disponible. */
@@ -829,7 +909,7 @@ export function readiness(split, mode, history, now, available) {
   return { score: rested / regs.length, tired };
 }
 
-export function rotationFor(mode) { return baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION; }
+export function rotationFor(mode) { return mode === 'gentle' ? GENTLE_ROTATION : baseMode(mode) === 'hybrid' ? HYBRID_ROTATION : MUSCLE_ROTATION; }
 
 /** Ordena los tipos de sesión de mejor a peor opción para entrenar ahora. */
 export function rankSplits({ mode, history, now = Date.now(), available }) {

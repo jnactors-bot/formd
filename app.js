@@ -3,7 +3,7 @@
 // respuesta al toque (no al soltar), vibración suave y regreso disponible en todas las pantallas.
 import { CATALOG } from './catalog.js';
 import {
-  BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, LEG_PREFS, baseMode, legPrefOf, EVIDENCE, EVIDENCE_TITLE, FACTS, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
+  BY_CODE, EQUIPMENT_PRESETS, MACHINE_FAMILY, MODES, LEG_PREFS, baseMode, legPrefOf, EVIDENCE, EVIDENCE_TITLE, FACTS, HEALTH_FACTS, citesOf, TIMES, addSetToFill, adaptiveHint, csvFromHistory,
   e1rm, extraExercise, hybridWarnings, isPR, lastPerformance, makePlan, nextSplit, plannedUnits, regionSetsLastDays,
   sessionVolumeKg, shortenPlan, shortenRests, suggestSubstitutes, suggestedWeightKg, weeklyLoad, moveBlock, substituteBlock, replaceBlock,
   REST_OPTIONS, bumpRestAdj, effectiveRest, plannedSecondsWith, PERIOD_DAYS, MUSCLE_GROUPS, mondayOf, periodBuckets, regionSetsByDay, sessionExerciseCounts, setsByMuscleGroup, topExercises,
@@ -16,6 +16,7 @@ import { SHARE_URL, copyText, downloadBlob, renderShareCard, shareFile } from '.
 import { warmupFor, warmupRemote } from './warmup.js';
 import { LEVELS, LEVEL_NAME, BEGINNER_STAGES, isSwimCode, cardioSegments, describe as cardioDescribe, fmtDur, isRunCode, modeNote, segmentAt, steps as cardioSteps } from './cardio.js';
 import { STRETCH_EVIDENCE, STRETCH_EVIDENCE_TITLE, STRETCH_FACTS, cooldownFor, regionLoad, targetRegion } from './stretch.js';
+import { weekStats, streak as streakOf, xp as xpOf, level as levelOf, badges as badgesOf, sessionReward } from './rewards.js';
 import { DICT, getLang, setLang, t } from './i18n.js';
 import { accountMode, api, canSync, centralUrl, exportBackup, googleClientId, load, personalMode, publicCall, save, scriptUrl, sync } from './store.js';
 import { askDismiss, askFresh, askVisit, captureInstallPrompt, isIOS, isStandalone, loginRecent, needsSafariFirst, platformOf, shouldAsk, shouldAskLogin } from './install.js';
@@ -50,7 +51,7 @@ const clearSavedCode = () => { try { sessionStorage.removeItem(CODE_KEY); } catc
 
 const TAB_ORDER = ['home', 'progress', 'history', 'profile'];
 const ui = {
-  screen: null, tab: 'home', minutes: 45, plan: null, view: 'front', histTab: 'date', histEx: null,
+  screen: null, tab: 'home', minutes: S.settings.minutes ?? (S.settings.mode === 'gentle' ? 20 : 45), plan: null, view: 'front', histTab: 'date', histEx: null,
   modal: null, toast: '', hintDismissed: -1, summary: null, syncing: false, dir: 'fwd',
   onbStep: S.settings.mode ? (S.settings.sex ? 3 : 2) : 1, pickMode: S.settings.mode ?? 'muscle', prevFill: null, popKey: null, rating: 0, splitOverride: null, calMonth: null, calSel: null,
   adminPending: null, admin: null,
@@ -323,7 +324,7 @@ function viewWelcome() {
   return `<main class="pad col stagger">
     <div class="row between">${logo()}<span class="mut sm">1 / 3</span></div>
     <h1 class="hero">${t('welcome.title')}</h1>
-    <div class="col gap" role="radiogroup">${card('muscle')}${card('strength')}${card('hybrid')}${card('fatloss')}</div>
+    <div class="col gap" role="radiogroup">${card('muscle')}${card('strength')}${card('hybrid')}${card('fatloss')}${card('gentle')}</div>
     <div class="grow"></div>
     <p class="mut xs center">${t('welcome.once')}</p>
     <button class="cta" data-a="confirmMode">${t('common.continue')}</button>
@@ -405,6 +406,65 @@ function syncBadge() {
   return S.pending.length || S.deleted.length ? `<span class="dot-warn" title="${t('history.offline')}"></span>` : `<span class="dot-ok" title="${t('sync.ok')}"></span>`;
 }
 
+// ---------- Premios y ciencia ----------
+const fmtShort = (d) => fmtDate(d, { day: 'numeric', month: 'short' });
+const dayFact = () => HEALTH_FACTS[Math.floor(Date.now() / 864e5) % HEALTH_FACTS.length];
+// Pie de una ficha: citas con enlace, consenso práctico o «cita por verificar».
+function citeHTML(e) {
+  const cs = citesOf(e);
+  if (cs.length) return `<p class="mut xs cites"><b>${t('evidence.sources')}:</b> ${cs.map((c) => (c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${esc(c.cite)}</a>` : esc(c.cite))).join(' · ')}</p>`;
+  return `<p class="mut xs">${e.consensus ? t('evidence.consensus') : t('evidence.noCite')}</p>`;
+}
+const rewardsNow = () => {
+  const week = S.settings.week ?? DEFAULT_WEEK, now = Date.now();
+  const x = xpOf(S.history, week);
+  return { ws: weekStats(S.history, week, now), st: streakOf(S.history, week, now), lv: levelOf(x), x };
+};
+function rewardCard(wk) {
+  const { ws, st, lv } = rewardsNow();
+  const L = lang();
+  const miss = Math.max(0, ws.goal - ws.sessions);
+  const risk = st.atRisk && !ws.done ? `<div class="rw-risk">${miss === 1 ? t('rw.atRisk1') : t('rw.atRiskN', { n: miss })}</div>` : '';
+  const xpLine = lv.next ? t('rw.xpTo', { x: lv.next - lv.xp, n: lv.n + 1 }) : t('rw.xpMax');
+  const mins = Math.min(100, Math.round((ws.minutes / ws.minutesGoal) * 100));
+  return `<section class="card rw">
+    <div class="row between rw-top"><span class="rw-streak" title="${t('rw.streakLabel')}">🔥 ${t('rw.streak', { n: st.weeks })}${st.shields > 0 ? ` <span class="rw-shield" title="${t('rw.shield')}">🛡 ${st.shields}</span>` : ''}</span><b class="rw-goal ${ws.done ? 'ok' : ''}">${ws.done ? '✓ ' : ''}${t('rw.weekGoal', { done: ws.sessions, goal: ws.goal })}</b></div>
+    ${weekBar(wk)}
+    ${risk}
+    <div class="rw-lv"><div class="row between xs"><b>${t('rw.level', { n: lv.n, name: lv.name[L] })}</b><span class="mut">${xpLine}</span></div><div class="rw-bar"><i style="width:${Math.round(lv.progress * 100)}%"></i></div></div>
+    <div class="rw-min"><div class="row between xs"><span class="mut">${t('rw.minutes', { m: ws.minutes, g: ws.minutesGoal })}</span></div><div class="rw-bar thin"><i style="width:${mins}%"></i></div></div>
+  </section>`;
+}
+function gentleFactCard() {
+  const k = dayFact(), e = EVIDENCE[k];
+  return `<div class="card factcard"><button class="factmain" data-a="evidence" data-v="${k}"><div class="row between"><span class="kicker">${t('gentle.factTitle').toUpperCase()}</span><span class="pill lv-${e.level}">${e.level}</span></div><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="mut sm">${esc(e[lang()])}</span></button><button class="link tiny" data-a="openFacts">${t('gentle.factMore')}</button></div>`;
+}
+function achievements() {
+  const week = S.settings.week ?? DEFAULT_WEEK, L = lang();
+  const bs = badgesOf(S.history, week, Date.now());
+  const { lv, st } = rewardsNow();
+  const n = bs.filter((b) => b.earned).length;
+  return `<section class="col gap ach"><div class="row between"><h2 class="ach-h">${t('rw.achievements')}</h2><span class="mut sm">${t('rw.badgesCount', { n, total: bs.length })}</span></div>
+    <div class="card row between"><b>${t('rw.level', { n: lv.n, name: lv.name[L] })}</b><span class="mut sm">${t('rw.bestStreak', { n: st.best })}</span></div>
+    <div class="badges">${bs.map((b) => `<div class="badge ${b.earned ? 'on' : 'off'}"><span class="b-ic" aria-hidden="true">${b.icon}</span><b>${esc(b.name[L])}</b><span class="mut xs">${b.earned ? t('rw.earned', { d: fmtShort(b.date) }) : esc(b.desc[L])}</span></div>`).join('')}</div>
+    <button class="seg" data-a="openFacts" data-v="rewards">${t('rw.whyTitle')}</button></section>`;
+}
+function rewardBlock(sm) {
+  const r = sm.reward;
+  if (!r) return '';
+  const L = lang();
+  const from = r.leveledUp ? 0 : r.levelBefore.progress, to = r.levelAfter.progress;
+  const parts = r.xpBreakdown.map((x) => `<span class="pill">${t('rw.xp.' + x.key)} +${x.xp}</span>`).join('');
+  return `<section class="card celeb">
+    <div class="row between"><b class="celeb-xp">${t('rw.xpGain', { n: r.xpGained })}</b><span class="mut sm">${t('rw.level', { n: r.levelAfter.n, name: r.levelAfter.name[L] })}</span></div>
+    <div class="rw-bar"><i class="fillanim" style="--from:${Math.round(from * 100)}%;--to:${Math.round(to * 100)}%"></i></div>
+    <div class="row gap wrap">${parts}</div>
+    ${r.leveledUp ? `<div class="celeb-msg pop">🎉 ${t('rw.levelUp', { n: r.levelAfter.n, name: r.levelAfter.name[L] })}</div>` : ''}
+    ${r.goalJustMet ? `<div class="celeb-msg pop">🎯 ${t('rw.weekGoalDone')}</div>` : `<div class="mut xs">${t('rw.weekProg', { done: r.weekAfter.sessions, goal: r.weekAfter.goal })}</div>`}
+    ${r.newBadges.length ? `<div class="col"><span class="kicker">${t('rw.newBadges').toUpperCase()}</span><div class="row gap wrap">${r.newBadges.map((b) => `<span class="pill newbadge pop">${b.icon} ${esc(b.name[L])}</span>`).join('')}</div></div>` : ''}
+  </section>`;
+}
+
 function weekBar(wk) {
   const mark = (d) => (d.state === 'done' ? '✓' : d.state === 'missed' ? '✕' : '');
   return `<button class="weekbar" data-a="openCalendar" aria-label="${t('cal.title')}">${wk.days.map((d) =>
@@ -431,7 +491,8 @@ function viewHome() {
     ${ui.update ? `<button class="adminnote" data-a="applyUpdate"><span>${t('update.available')}</span></button>` : ''}
     ${S.account && ui.expired ? `<div class="expired"><span>${t('account.reconnect')}</span>${S.account.metodo === 'correo' ? `<button class="seg" data-a="reloginMail">${t('login.mailAgain')}</button>` : `<div id="gsi" class="gsi" aria-label="${t('account.signIn')}"></div>`}</div>` : ''}
     ${isAdmin() && ui.adminPending > 0 ? `<button class="adminnote" data-a="openAdmin"><span class="bubble">${ui.adminPending}</span><span>${ui.adminPending === 1 ? t('admin.homeOne') : t('admin.homeMany', { n: ui.adminPending })}</span><span class="chev">${ICON.chev}</span></button>` : ''}
-    <div>${weekBar(wk)}<div class="mut xs center weeksum">${t('week.summary', { done: wk.doneDays, min: wk.min })}${wk.shortfall ? ' · ' + t('week.short', { n: wk.shortfall }) : ''}</div></div>
+    ${rewardCard(wk)}
+    ${mode === 'gentle' ? gentleFactCard() : ''}
     <div class="grow-sm"></div>
     <div><div class="row between"><div class="kicker">${t('mode.' + mode).toUpperCase()}</div><button class="link tiny" data-a="openSplits">${t('home.change')}</button></div>
       <h1 class="hero">${splitName(split)}</h1>${note}${soft}</div>
@@ -516,8 +577,9 @@ function viewPlan() {
   return `<main class="pad col stagger">
     <div class="row between">${backBtn()}<span></span></div>
     <div><div class="kicker">${t('mode.' + p.mode).toUpperCase()}</div><h1 class="hero">${t('splitShort.' + p.split)}</h1>
-      <div class="mut sm">${p.minutes} ${t('common.min')} · ${t('plan.exercises', { n })}</div></div>
+      <div class="mut sm">${p.minutes} ${t('common.min')} · ${n === 1 ? t('plan.exercise1') : t('plan.exercises', { n })}</div></div>
     ${p.soft ? `<span class="pill">${t('home.softReturn')}</span>` : ''}
+    ${p.mode === 'gentle' ? `<p class="mut xs gentlenote">${t('gentle.planNote')}</p>` : ''}
     <div class="col list-plan">${p.blocks.map((b, i, all) => blockRow(b, i, all)).join('')}</div>
     <button class="cta" data-a="startSession">${t('plan.start')}</button>
   </main>`;
@@ -760,7 +822,7 @@ function viewTimed(a, b) {
 // ---------- Resumen ----------
 function viewSummary() {
   const sm = ui.summary;
-  const fact = EVIDENCE[FACTS[Math.floor(Date.now() / 864e5) % FACTS.length]];
+  const fact = EVIDENCE[S.settings.mode === 'gentle' ? dayFact() : FACTS[Math.floor(Date.now() / 864e5) % FACTS.length]];
   const short = sm.short.slice(0, 3).map((r) => `<span class="pill">${esc(regionName(r))}</span>`).join('');
   return `<main class="pad col stagger">
     <div><div class="kicker">${t('summary.title').toUpperCase()}</div><h1 class="hero">${t('summary.good')}</h1></div>
@@ -770,10 +832,11 @@ function viewSummary() {
       <div><b data-count="${Math.round(sm.seconds / 60)}">${Math.round(sm.seconds / 60)}</b><span>${t('common.min')}</span></div>
     </div>
     ${sm.prs ? `<div class="pr-badge">🏆 ${sm.prs} PR</div>` : ''}
+    ${rewardBlock(sm)}
     <div class="row gap center bodies">${bodySVG('front', sm.fill, bodyOpts({ label: t('session.front') }))}${bodySVG('back', sm.fill, bodyOpts({ label: t('session.back') }))}</div>
-    ${short ? `<div class="row gap wrap"><span class="mut xs">${t('summary.fell')}</span>${short}</div>` : ''}
+    ${short && S.settings.mode !== 'gentle' ? `<div class="row gap wrap"><span class="mut xs">${t('summary.fell')}</span>${short}</div>` : ''}
     <div class="row gap stars" role="group" aria-label="${t('summary.rateShort')}">${[1, 2, 3, 4, 5].map((n) => `<button class="star ${ui.rating >= n ? 'on' : ''}" data-a="rate" data-v="${n}" aria-label="${n}">★</button>`).join('')}</div>
-    <details class="more"><summary>${t('summary.fact')}</summary><p class="mt">${esc(fact[lang()])}</p><p class="mut xs mt">${t('evidence.level', { l: fact.level })} · ${t('evidence.noCite')}</p></details>
+    <details class="more"><summary>${t('summary.fact')}</summary><p class="mt">${esc(fact[lang()])}</p><p class="mut xs mt">${t('evidence.level', { l: fact.level })}</p>${citeHTML(fact)}</details>
     <div class="grow"></div>
     <div class="row gap sumbtns"><button class="cta ghost shbtn" data-a="shareSummary">${ICON.share}<span>${t('share.btn')}</span></button><button class="cta" data-a="saveSummary">${t('summary.save')}</button></div>
   </main>`;
@@ -953,7 +1016,7 @@ function viewProgress() {
   else body = ui.progTab === 'chart' ? progChart(anim) : ui.progTab === 'muscle' ? progMuscle(anim) : ui.progTab === 'ex' ? progEx() : progWeek();
   return `<main class="pad col stagger prog"><h1>${t('progress.title')}</h1>
     <div class="row gap ptabs" role="group">${tabs}</div>
-    <div class="pan">${body}</div></main>${nav()}`;
+    <div class="pan">${body}</div>${achievements()}</main>${nav()}`;
 }
 
 // ---------- Perfil ----------
@@ -1210,6 +1273,25 @@ function closeModal() {
     setTimeout(() => { ui.modal = null; render(); }, 220);
   } else { ui.modal = null; render(); }
 }
+// Modo suave: valores de partida (solo si la persona no los ha personalizado).
+function applyGentleDefaults() {
+  const st = S.settings, w = st.week ?? DEFAULT_WEEK;
+  if (!ui.minutesTouched && S.settings.minutes == null) ui.minutes = 20;
+  const sameEq = (a, b) => Array.isArray(a) && a.length === b.length && b.every((c) => a.includes(c));
+  if (sameEq(st.equipment, EQUIPMENT_PRESETS.gym)) st.equipment = [...EQUIPMENT_PRESETS.bodyweight];
+  const isDefaultWeek = w.min === DEFAULT_WEEK.min && w.max === DEFAULT_WEEK.max && w.days.length === DEFAULT_WEEK.days.length && DEFAULT_WEEK.days.every((d) => w.days.includes(d));
+  if (!st.weekSet || isDefaultWeek) st.week = { days: [0, 1, 2, 3, 4, 5, 6], min: 3, max: 5 };
+}
+function setMode(m) {
+  S.settings.mode = m;
+  if (m === 'gentle') applyGentleDefaults();
+}
+function changeModeTo(m) {
+  ask(t('profile.changeModeAsk'), () => {
+    if (m === 'gentle' && !S.settings.gentleAck) { openModal({ type: 'gentleack', from: 'profile' }); return; }
+    setMode(m); persist(); render();
+  });
+}
 function ask(text, onYes) { openModal({ type: 'ask', text, onYes }); }
 
 const claimState = () => (ui.claim ??= { tipo: 'Reclamo', nombre: [S.account?.datos?.nombres, S.account?.datos?.apellidos].filter(Boolean).join(' ') || S.account?.name || '', detalle: '', busy: false, res: null });
@@ -1223,7 +1305,13 @@ function modalHTML() {
   } else if (m.type === 'evidence') {
     const e = EVIDENCE[m.key];
     inner = `<div class="kicker">${t('evidence.level', { l: e.level })} · ${t('evidence.' + e.level)}</div><h2>${EVIDENCE_TITLE[m.key][lang()]}</h2>
-      <p>${esc(e[lang()])}</p><p class="mut xs">${t('evidence.noCite')}</p>`;
+      <p>${esc(e[lang()])}</p>${citeHTML(e)}`;
+  } else if (m.type === 'facts') {
+    const keys = m.keys ?? HEALTH_FACTS;
+    inner = `<h2>${t(m.title ?? 'gentle.factTitle')}</h2><div class="col">${keys.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
+  } else if (m.type === 'gentleack') {
+    inner = `<h2>${t('gentle.ackTitle')}</h2><div class="col gentleack"><p>${t('gentle.ackIntro')}</p><p><b>${t('gentle.ackBefore')}</b></p><ul class="bullets">${t('gentle.ackSigns').split('|').map((x) => `<li>${esc(x)}</li>`).join('')}</ul><p class="mut sm">${t('gentle.ackDuring')}</p></div>
+      <button class="cta" data-a="gentleAckYes">${t('gentle.ackOk')}</button><button class="link" data-a="gentleAckOther">${t('gentle.ackOther')}</button>`;
   } else if (m.type === 'why') {
     inner = `<h2>${t('plan.whyTitle')}</h2><div class="col">${ui.plan.why.map((k) => `<button class="opt" data-a="evidence" data-v="${k}"><div class="row between"><b>${EVIDENCE_TITLE[k][lang()]}</b><span class="pill lv-${EVIDENCE[k].level}">${EVIDENCE[k].level}</span></div></button>`).join('')}</div>`;
   } else if (m.type === 'share') {
@@ -1337,7 +1425,7 @@ function modalHTML() {
           <div class="mut xs">${s.needs ? `<span class="acc">${t('sub.needs', { e: esc(equipName(s.needs)) })}</span>` : equipName(s.exercise.equipment)}${w && !s.needs ? ' · ' + fmtW(w) : ''}</div></button>`;
       }).join('') : `<p>${t('sub.none2')}</p>`}`;
   }
-  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share', 'manual'].includes(m.type);
+  const showClose = ['histlist', 'edithist', 'editset', 'demo', 'account', 'mydata', 'acclog', 'legal', 'claim', 'sub', 'evidence', 'facts', 'why', 'splits', 'weekcfg', 'equipsheet', 'sheetssheet', 'remind', 'skip', 'admin', 'share', 'manual'].includes(m.type);
   const adm = m.type === 'admin';
   const quiet = adm || m.type === 'share' || m.type === 'install';
   const still = quiet && m.shown ? ' still' : '';
@@ -1436,7 +1524,19 @@ function setTab(id) {
 const A = {
   back() { history.length > 1 && history.state ? history.back() : handleBack(); },
   pickMode(el) { ui.pickMode = el.dataset.v; buzz(10); render(); },
-  confirmMode() { S.settings.mode = ui.pickMode; ui.onbStep = S.settings.sex ? 3 : 2; ui.dir = 'fwd'; persist(); render(); },
+  confirmMode() {
+    if (ui.pickMode === 'gentle' && !S.settings.gentleAck) { openModal({ type: 'gentleack', from: 'onb' }); return; }
+    setMode(ui.pickMode); ui.onbStep = S.settings.sex ? 3 : 2; ui.dir = 'fwd'; persist(); render();
+  },
+  gentleAckYes() {
+    const from = ui.modal?.from;
+    S.settings.gentleAck = true; ui.modal = null;
+    setMode('gentle');
+    if (from === 'onb') { ui.onbStep = S.settings.sex ? 3 : 2; ui.dir = 'fwd'; }
+    persist(); render();
+  },
+  gentleAckOther() { ui.modal = null; ui.pickMode = S.settings.mode ?? 'muscle'; render(); },
+  openFacts(el) { openModal(el?.dataset?.v === 'rewards' ? { type: 'facts', keys: ['rewards', 'habit', 'anyAmount'], title: 'rw.whyTitle' } : { type: 'facts' }); },
   pickSex(el) { ui.pickSex = el.dataset.v; buzz(10); render(); },
   confirmSex() { S.settings.sex = ui.pickSex ?? S.settings.sex ?? 'male'; ui.onbStep = 3; ui.dir = 'fwd'; persist(); render(); },
   setSex(el) { S.settings.sex = el.dataset.v; persist(); render(); },
@@ -1700,7 +1800,7 @@ const A = {
     });
   },
   tab(el) { setTab(el.dataset.v); },
-  minutes(el) { ui.minutes = Number(el.dataset.v); render(); },
+  minutes(el) { ui.minutes = Number(el.dataset.v); ui.minutesTouched = true; S.settings.minutes = ui.minutes; persist(); render(); },
   makePlan() {
     const sug = suggestToday(agendaArgs());
     const split = ui.splitOverride ?? sug.split;
@@ -1829,7 +1929,7 @@ const A = {
     if (!b || b.type !== 'exercise') return;
     const cur = BY_CODE.get(b.code);
     const doneToday = new Set(p.blocks.filter((x) => x.type === 'exercise').map((x) => x.code));
-    const list = suggestSubstitutes({ current: cur, available: available(), doneToday, minutesLeft: p.minutes, history: S.history, legPref: legPrefOf(S.settings) });
+    const list = suggestSubstitutes({ current: cur, available: available(), doneToday, minutesLeft: p.minutes, history: S.history, legPref: legPrefOf(S.settings), mode: p.mode ?? S.settings.mode });
     openModal({ type: 'sub', from: cur.code, list, planIdx: i });
   },
   useSub(el) {
@@ -1940,11 +2040,11 @@ const A = {
   backup() { download('formd-copia.json', exportBackup(S), 'application/json'); },
   doSync() { doSync(true); },
   connect() { S.settings.code = document.getElementById('f-code')?.value.trim() ?? ''; persist(); doSync(true); },
-  changeModeSel(el) { const m = el.value; if (m === S.settings.mode) return; ask(t('profile.changeModeAsk'), () => { S.settings.mode = m; persist(); render(); }); },
+  changeModeSel(el) { const m = el.value; if (m === S.settings.mode) return; changeModeTo(m); },
   changeMode(el) {
     const m = el.dataset.v;
     if (m === S.settings.mode) return;
-    ask(t('profile.changeModeAsk'), () => { S.settings.mode = m; persist(); render(); });
+    changeModeTo(m);
   },
   resetAll() {
     ask(t('profile.resetAsk'), () => {
@@ -2047,7 +2147,7 @@ function openSub() {
   const cur = BY_CODE.get(b.code);
   const doneToday = new Set(a.sets.map((x) => x.ejercicio_code));
   const remaining = Math.max(0, a.plan.plannedSeconds - elapsedS(a)) / 60;
-  const list = suggestSubstitutes({ current: cur, available: available(), blocked: new Set([cur.equipment]), doneToday, minutesLeft: remaining, history: S.history, legPref: legPrefOf(S.settings) });
+  const list = suggestSubstitutes({ current: cur, available: available(), blocked: new Set([cur.equipment]), doneToday, minutesLeft: remaining, history: S.history, legPref: legPrefOf(S.settings), mode: a.plan.mode ?? S.settings.mode });
   openModal({ type: 'sub', from: cur.code, list });
 }
 
@@ -2060,6 +2160,13 @@ function finishSession() {
     volume: sessionVolumeKg(a.sets), sets: a.sets.length, seconds: Math.round(elapsedS(a)), planned: a.plan.plannedSeconds,
     prs: a.sets.filter((x) => x.es_pr).length, fill: a.fill, short: [...wanted].filter((r) => (a.fill[r] ?? 0) < 0.99),
   };
+  // Premios: se calculan con el historial ANTES de añadir esta sesión (saveSummary la añade después).
+  try {
+    ui.summary.reward = sessionReward(S.history, {
+      id: a.id, fecha: a.fecha, modo: a.mode, split: a.split, minutos_plan: Math.round(a.plan.plannedSeconds / 60),
+      segundos_real: ui.summary.seconds, prs: ui.summary.prs, series: a.sets,
+    }, S.settings.week ?? DEFAULT_WEEK, Date.now());
+  } catch { ui.summary.reward = null; }
   buzz([40, 30, 80]);
   ui.screen = 'summary'; ui.dir = 'fwd'; render(); window.scrollTo(0, 0);
 }

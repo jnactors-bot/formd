@@ -11,6 +11,7 @@ export const defaults = () => ({
     unit: 'kg',
     lang: (navigator.language || 'es').toLowerCase().startsWith('en') ? 'en' : 'es',
     equipment: EQUIPMENT_PRESETS.gym,
+    gentleAck: false, // aviso de salud del modo suave aceptado
     restDefault: 90,
     restOverride: null, // null = el descanso que trae el plan; o segundos (estándar de 2 min = 120)
     restAdj: {}, // ajuste acumulado por ejercicio (s, máx ±180)
